@@ -33,7 +33,8 @@ def route(a: Rect, b: Rect, scale: float = 1.0, gap_x: float = GAP_X, gap_y: flo
     skips_a_card = abs(dy) > 1.5 * (a.h + gap_y * scale)
     if same_column and skips_a_card:
         # Loop around the right-hand side so the line does not cross cards in between.
-        off = gap / 2
+        # Slides routes a right->right bent connector ~20pt outside the farther shape.
+        off = 20 * scale
         x = max(a.x + a.w, b.x + b.w) + off
         pts = [(a.x + a.w, a.cy), (x, a.cy), (x, b.cy), (b.x + b.w, b.cy)]
         return Route(SITE_RIGHT, SITE_RIGHT, pts, (x, (a.cy + b.cy) / 2), "center")
@@ -67,27 +68,39 @@ def route(a: Rect, b: Rect, scale: float = 1.0, gap_x: float = GAP_X, gap_y: flo
     return Route(s, e, pts, (p0[0] + 4 * scale, my), "right")
 
 
-def label_rect(r: Route, w: float, h: float, placed: list[Rect] | None = None, obstacles: list[Rect] | None = None) -> Rect:
+def label_rect(r: Route, w: float, h: float, placed: list[Rect] | None = None, obstacles: list[Rect] | None = None,
+               soft_obstacles: list[Rect] | None = None) -> Rect:
     """Label box on the route.
 
     Samples positions along the whole polyline and picks the one with the least overlap with
-    `obstacles` (cards) and previously `placed` labels, preferring the route's natural label point.
+    `obstacles` (cards), `soft_obstacles` (zones unrelated to the edge, weighted lower) and
+    previously `placed` labels, preferring the route's natural label point and on-line placement.
     """
     x, y = r.label_center
     natural = Rect(x, y - h / 2, w, h) if r.label_side == "right" else Rect(x - w / 2, y - h / 2, w, h)
-    obstacles = obstacles or []
+    # A label may sit over a card's outer margin (text is inset ~7pt) without hiding anything.
+    inset = 6.0
+    obstacles = [Rect(o.x + inset, o.y + inset, max(1, o.w - 2 * inset), max(1, o.h - 2 * inset)) for o in (obstacles or [])]
     placed_rects = placed if placed is not None else []
+    soft = soft_obstacles or []
 
-    def cost(rect: Rect) -> float:
+    def cost(rect: Rect, side_penalty: float = 0.0) -> float:
         c = sum(_overlap_area(rect, o) for o in obstacles) + 3 * sum(_overlap_area(rect, p) for p in placed_rects)
-        c += 0.02 * (abs(rect.cx - natural.cx) + abs(rect.cy - natural.cy))  # stay near the natural spot
-        return c
+        c += 0.35 * sum(_overlap_area(rect, z) for z in soft)
+        c += 0.06 * (abs(rect.cx - natural.cx) + abs(rect.cy - natural.cy))  # stay near the natural spot
+        return c + side_penalty
 
     best, best_cost = natural, cost(natural)
     if best_cost > 0:
-        for px, py in _sample_polyline(r.points, step=5.0):
-            for cand in (Rect(px - w / 2, py - h / 2, w, h), Rect(px + 2, py - h / 2, w, h), Rect(px - w - 2, py - h / 2, w, h)):
-                c = cost(cand)
+        for px, py in _sample_polyline(r.points, step=4.0):
+            for cand, pen in (
+                (Rect(px - w / 2, py - h / 2, w, h), 0.0),   # centred on the line
+                (Rect(px - w / 2, py - h - 1, w, h), 3.0),   # above a horizontal segment
+                (Rect(px - w / 2, py + 1, w, h), 3.0),       # below a horizontal segment
+                (Rect(px + 2, py - h / 2, w, h), 5.0),       # right of a vertical segment
+                (Rect(px - w - 2, py - h / 2, w, h), 5.0),   # left of a vertical segment
+            ):
+                c = cost(cand, pen)
                 if c < best_cost - 1e-6:
                     best, best_cost = cand, c
     if placed is not None:

@@ -101,6 +101,10 @@ def main():
 
     placed = []
     card_rects = list(card.values())
+    leaf_zone_rects = [zb.rect for zb in lay.zones if not any(o.zone.parent == zb.zone.id for o in lay.zones)]
+    def unrelated(a, b):
+        inside = lambda z, r: z.x <= r.cx <= z.x + z.w and z.y <= r.cy <= z.y + z.h
+        return [z for z in leaf_zone_rects if not inside(z, a) and not inside(z, b)]
     for e in spec.edges:
         if e.source not in card or e.target not in card:
             continue
@@ -128,7 +132,7 @@ def main():
             lsize = F["edge"]
             fl = font(lsize)
             w = max(24.0, len(e.label) * lsize * 0.58 + 10)
-            lr = label_rect(rt, w, 14, placed, card_rects)
+            lr = label_rect(rt, w, 14, placed, card_rects, unrelated(a, b))
             d.rectangle([lr.x * S, lr.y * S, (lr.x + lr.w) * S, (lr.y + lr.h) * S], fill="white")
             tw = d.textlength(e.label, font=fl)
             d.text((lr.cx * S - tw / 2, lr.cy * S - fl.size / 2), e.label, fill=INK_MUTED, font=fl)

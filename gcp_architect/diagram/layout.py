@@ -47,8 +47,8 @@ class Params:
     zone_pad: float = 10.0
     zone_header: float = 20.0
     zone_detail_h: float = 10.0
-    icon: float = 26.0
-    icon_top: float = 4.0
+    icon: float = 28.0
+    icon_top: float = 5.0
     card_pad_bottom: float = 5.0
     max_rows: int = 3
     min_card_w: float = 100.0
@@ -179,11 +179,12 @@ def card_size(nodes: list[Node], p: Params) -> tuple[float, float]:
 
 # --------------------------------------------------------------------------- graph ranks
 def compute_ranks(spec: ArchitectureSpec) -> dict[str, int]:
-    """Longest-path layering over the edge graph; cycles are broken on back edges."""
+    """Longest-path layering over the *solid* edge graph; dashed/dotted edges are attachments
+    (policies, config) and must not push their source ahead of its target. Cycles are broken on back edges."""
     order = [n.id for n in spec.nodes]
     pred: dict[str, list[str]] = defaultdict(list)
     for e in spec.edges:
-        if e.source != e.target:
+        if e.source != e.target and e.style == "solid":
             pred[e.target].append(e.source)
 
     memo: dict[str, int] = {}
@@ -203,6 +204,37 @@ def compute_ranks(spec: ArchitectureSpec) -> dict[str, int]:
         return d
 
     return {n: depth(n) for n in order}
+
+
+def order_zone_nodes(nodes: list[Node], spec: ArchitectureSpec, ranks: dict[str, int], order_index: dict[str, int]) -> list[Node]:
+    """Flow order inside a zone: by solid rank, with *attachments* (nodes whose only edges are
+    dashed/dotted links to another node in the same zone) placed directly next to their target,
+    alternating before/after it, so they connect with short straight arrows instead of loops."""
+    ids = {n.id for n in nodes}
+    solid_touch: set[str] = set()
+    dashed_target: dict[str, str] = {}
+    for e in spec.edges:
+        if e.style == "solid":
+            solid_touch.add(e.source)
+            solid_touch.add(e.target)
+        else:
+            other = e.target if e.source in ids else e.source
+            me = e.source if e.source in ids else e.target
+            if me in ids and other in ids and me != other:
+                dashed_target.setdefault(me, other)
+    attachments = [n for n in nodes if n.id not in solid_touch and n.id in dashed_target and dashed_target[n.id] in ids]
+    attach_ids = {n.id for n in attachments}
+    base = sorted((n for n in nodes if n.id not in attach_ids), key=lambda n: (ranks.get(n.id, 0), order_index[n.id]))
+    for i, att in enumerate(sorted(attachments, key=lambda n: order_index[n.id])):
+        target = dashed_target[att.id]
+        if target in attach_ids:  # attachment of an attachment: fall back to flow order
+            base.append(att)
+            continue
+        pos = next(k for k, n in enumerate(base) if n.id == target)
+        before = sum(1 for n in base[:pos] if n.id in attach_ids and dashed_target.get(n.id) == target)
+        after = sum(1 for n in base[pos + 1:] if n.id in attach_ids and dashed_target.get(n.id) == target)
+        base.insert(pos if before <= after else pos + 1 + after, att)
+    return base
 
 
 # --------------------------------------------------------------------------- measuring / placing
@@ -259,6 +291,12 @@ def _place(block: _Block, x: float, y: float, h: float, p: Params, node_w: float
         child_depth = depth
 
     cursor = cx
+    if block.zone is not None:
+        # Centre the content horizontally when the zone is wider than its content (long zone labels).
+        content_w = (block.node_block_w if block.nodes else 0.0) + sum(c.w for c in block.children)
+        parts = (1 if block.nodes else 0) + len(block.children)
+        content_w += max(0, parts - 1) * p.zone_gap
+        cursor += max(0.0, (block.w - 2 * p.zone_pad - content_w) / 2)
     if block.nodes:
         top = cy + (inner_h - block.node_block_h) / 2
         i = 0
@@ -282,7 +320,7 @@ def _attempt(spec: ArchitectureSpec, p: Params, ranks: dict[str, int]) -> tuple[
     order_index = {n.id: i for i, n in enumerate(spec.nodes)}
 
     def sort_nodes(ns: list[Node]) -> list[Node]:
-        return sorted(ns, key=lambda n: (ranks.get(n.id, 0), order_index[n.id]))
+        return order_zone_nodes(ns, spec, ranks, order_index)
 
     node_w, node_h = card_size(spec.nodes, p)
     nodes_by_zone: dict[str | None, list[Node]] = defaultdict(list)

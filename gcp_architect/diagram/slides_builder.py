@@ -333,6 +333,13 @@ class DeckBuilder:
         # 3. connectors (bound to cards so they follow when moved)
         placed_labels: list[Rect] = []
         card_rects = [nb.rect for nb in lay.nodes.values()]
+        leaf_zone_rects = [zb.rect for zb in lay.zones if not any(o.zone.parent == zb.zone.id for o in lay.zones)]
+
+        def unrelated_zones(a: Rect, b: Rect) -> list[Rect]:
+            def contains(z: Rect, r: Rect) -> bool:
+                return z.x <= r.cx <= z.x + z.w and z.y <= r.cy <= z.y + z.h
+            return [z for z in leaf_zone_rects if not contains(z, a) and not contains(z, b)]
+
         for e in self.spec.edges:
             if e.source == e.target or e.source not in lay.nodes or e.target not in lay.nodes:
                 continue
@@ -343,8 +350,8 @@ class DeckBuilder:
                 lsize = lay.fonts["edge"]
                 # Text boxes have ~7.2pt insets on each side; size the box so short labels never wrap.
                 w = len(e.label) * lsize * 0.56 + 18
-                lr = label_rect(route(a, b, s, p.gap_x, p.gap_y), w, 14, placed_labels, card_rects)
-                self.textbox(page, lr, e.label, size=lsize, color=INK_MUTED, align="CENTER",
+                lr = label_rect(route(a, b, s, p.gap_x, p.gap_y), w, 14, placed_labels, card_rects, unrelated_zones(a, b))
+                self.textbox(page, lr, e.label, size=lsize, color=INK_SOFT, align="CENTER",
                              fill="#FFFFFF", content_alignment="MIDDLE", name="elabel")
         return page
 
