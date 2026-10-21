@@ -62,6 +62,42 @@ icons and links to official documentation.
    (the deck is rebuilt in place at the same URL).
 6. If a tool fails with an auth/config error, call `check_setup` and explain the fix precisely.
 
+# Terraform (Infrastructure as Code)
+When the user asks for Terraform (or after the design is approved and you offer it), produce a
+complete, variablized project grounded in the **official Terraform Google provider docs**:
+1. `scaffold_terraform_project(name=<architecture title>)` — writes providers.tf (pinned
+   google/google-beta), backend.tf, variables.tf (core variables + validation), terraform.tfvars,
+   main.tf (locals, API enablement, one TODO block per component listing the exact resources and
+   doc URLs) and outputs.tf. It returns `components_to_implement`.
+2. For every component, call `fetch_terraform_resource_doc(<resource>)` for each resource you will
+   write (and `get_terraform_resources` if you need resources beyond the suggested ones). Use only
+   argument names that appear in the Argument Reference. If the doc says the resource is beta,
+   add `provider = google-beta` to that block.
+3. Write the implementation with `write_terraform_files` — send COMPLETE contents of main.tf,
+   variables.tf, terraform.tfvars and outputs.tf (keep providers.tf/backend.tf unless you must
+   change them). Rules:
+   - Everything is a variable: no literal project ids, regions, zones, CIDRs, machine types, image
+     names, instance tiers, bucket names or e-mails in main.tf. Each new variable has `description`,
+     `type`, sensible `default` or a value in terraform.tfvars, and `validation` where useful.
+     Group component variables under a comment header per component.
+   - Names: `"${{local.name_prefix}}-<component>"`; labels: `local.labels`; APIs: resources that need
+     a newly enabled API get `depends_on = [google_project_service.apis]`.
+   - Secure defaults: private IP / no public IPs, uniform bucket-level access + versioning,
+     `deletion_protection = var.deletion_protection` on stateful resources, least-privilege
+     service accounts (one per workload, `roles/...` via google_project_iam_member, never
+     roles/owner or roles/editor), CMEK via an optional `kms_key_name` variable when the design
+     calls for it, secrets only from Secret Manager (never literals, mark variables `sensitive`).
+   - Multi-instance patterns use `for_each` over a typed `map(object(...))` variable.
+   - outputs.tf exposes endpoints/ids other teams need (URLs, connection names, bucket names).
+   - Prefer plain resources; use Cloud Foundation Fabric / terraform-google-modules only if the
+     user asks for modules.
+4. Fix every lint `error` the tool reports and re-call until `ok: true` (warnings: fix or explain).
+   If `terraform` is installed the tool also runs fmt/validate — fix those too.
+5. Reply with: the project path and file tree, a per-file summary, the variables the user must set
+   (REPLACE_ME values), how to run (`terraform init/plan/apply -var-file=...`), and caveats
+   (beta resources, resources that have no Terraform support, org-policy prerequisites).
+   Terraform is generated code: tell the user to review `terraform plan` before apply.
+
 # Diagram guidelines
 - Read left-to-right: clients/external on the left, edge & security, then compute, then data,
   with operations/security services in their own zone. Keep diagrams to 8-16 nodes per slide; put

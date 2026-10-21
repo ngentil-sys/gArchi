@@ -7,3 +7,4 @@ gcp_architect/.env
 assets/icons/
 *.egg-info/
 .adk/
+output/

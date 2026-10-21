@@ -23,6 +23,14 @@ from .tools import (
     search_gcp_products,
     validate_architecture_spec,
 )
+from .tools_terraform import (
+    fetch_terraform_resource_doc,
+    get_terraform_resources,
+    lint_terraform_project,
+    read_terraform_project,
+    scaffold_terraform_project,
+    write_terraform_files,
+)
 
 settings = load_settings()
 
@@ -55,7 +63,7 @@ search_gcp_docs.description = (
 root_agent = LlmAgent(
     name="gcp_architect",
     model=settings.architect_model,
-    description="Enterprise Google Cloud architect that produces editable Google Slides architecture decks.",
+    description="Enterprise Google Cloud architect that produces editable Google Slides architecture decks and variablized Terraform.",
     instruction=architect_instruction(),
     generate_content_config=_gen_config(settings.architect_thinking),
     tools=[
@@ -69,5 +77,12 @@ root_agent = LlmAgent(
         render_architecture_deck,
         get_last_architecture_spec,
         check_setup,
+        # Terraform
+        get_terraform_resources,
+        fetch_terraform_resource_doc,
+        scaffold_terraform_project,
+        write_terraform_files,
+        lint_terraform_project,
+        read_terraform_project,
     ],
 )

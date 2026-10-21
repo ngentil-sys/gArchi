@@ -11,12 +11,22 @@ you ──chat──▶ gcp_architect (Gemini 3.8 Flash, ADK)
                  ├─ fetch_official_doc     reads a cloud.google.com page (limits, SLAs, best practices)
                  ├─ list/search/get_gcp_product   curated catalog: product → docs URL + official icon
                  ├─ validate_architecture_spec    layout dry-run
-                 └─ render_architecture_deck      spec → Google Slides (native shapes, bound connectors, icons)
+                 ├─ render_architecture_deck      spec → Google Slides (native shapes, bound connectors, icons)
+                 └─ Terraform: scaffold_terraform_project · fetch_terraform_resource_doc (official provider docs)
+                               · write_terraform_files (lint + fmt/validate) · read/lint_terraform_project
 ```
 
 Generated deck: **cover → editable architecture diagram → component table (with docs links) →
 design considerations (Architecture Framework pillars) → references**. Re-requests ("make it
 multi-region") rebuild the same deck in place.
+
+Generated Terraform (ask "generate the Terraform"): `output/<slug>/terraform/` with
+`providers.tf` (pinned `hashicorp/google` + `google-beta`), `backend.tf` (GCS remote state),
+`variables.tf` (typed, documented, validated), `terraform.tfvars`, `main.tf` (locals, API
+enablement, one section per component) and `outputs.tf`. Every resource block is written after
+reading the **official provider documentation** for that resource; a linter rejects literal
+project ids/regions/secrets and undeclared variables, and runs `terraform fmt`/`validate` when a
+`terraform` binary is present (`TERRAFORM_BIN`).
 
 ## Prerequisites
 
@@ -77,7 +87,8 @@ on-prem SAP integration."*
 |---|---|
 | `gcp_architect/agent.py` | `root_agent` (architect) + grounded `gcp_docs_researcher` sub-agent |
 | `gcp_architect/prompts.py` | system instructions (method, enterprise baseline, spec schema) |
-| `gcp_architect/tools.py` | ADK function tools |
+| `gcp_architect/tools.py` | ADK function tools (catalog, docs, deck) |
+| `gcp_architect/tools_terraform.py` | ADK function tools (Terraform) |
 | `gcp_architect/catalog/products.json` | curated product catalog: id, name, category, official docs URL, official icon id |
 | `gcp_architect/diagram/spec.py` | `ArchitectureSpec` (zones / nodes / edges / components / considerations / references) |
 | `gcp_architect/diagram/layout.py` | deterministic zone-driven layout on the 720×405 pt page |
@@ -85,6 +96,10 @@ on-prem SAP integration."*
 | `gcp_architect/diagram/slides_builder.py` | spec → Slides `batchUpdate` requests (all native, editable objects) |
 | `gcp_architect/diagram/icons.py` | icon id → public URL (GCS public / signed / static) |
 | `gcp_architect/gapi/` | ADC auth + Slides/Drive client |
+| `gcp_architect/terraform/registry.py` | product → Terraform resources/APIs map; official provider doc fetcher (hashicorp/terraform-provider-google) |
+| `gcp_architect/terraform/scaffold.py` | deterministic project skeleton from the spec |
+| `gcp_architect/terraform/lint.py` | HCL structure/variable/secret linter + optional `terraform fmt/validate` |
+| `gcp_architect/catalog/terraform_resources.json` | product id → resources, APIs, beta flag |
 | `scripts/setup_icons.py` | official icon pack download + manifest + bucket mirror |
 
 ## Catalog notes
