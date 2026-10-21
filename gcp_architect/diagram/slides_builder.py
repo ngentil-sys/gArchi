@@ -317,8 +317,9 @@ class DeckBuilder:
             self.connector(page, a, b, card_ids[e.source], card_ids[e.target], style=e.style, bidirectional=e.bidirectional, scale=s)
             if e.label:
                 lsize = max(6.5, 7 * s)
-                w = max(24.0, len(e.label) * lsize * 0.58 + 10)
-                lr = label_rect(route(a, b, s), w, 13)
+                # Text boxes have ~7.2pt insets on each side; size the box so short labels never wrap.
+                w = len(e.label) * lsize * 0.56 + 18
+                lr = label_rect(route(a, b, s), w, 14)
                 self.textbox(page, lr, e.label, size=lsize, color=INK_MUTED, align="CENTER",
                              fill="#FFFFFF", content_alignment="MIDDLE", name="elabel")
         return page
@@ -367,7 +368,7 @@ class DeckBuilder:
                                       "elementProperties": {"pageObjectId": page,
                                                             "size": {"width": pt(aw), "height": pt(24 * rows)},
                                                             "transform": {"scaleX": 1, "scaleY": 1, "translateX": ax, "translateY": ay, "unit": "PT"}}}})
-            widths = [150, 220, 218, 100]
+            widths = [140, 210, 198, 140]
             for col, w in enumerate(widths):
                 self.add({"updateTableColumnProperties": {"objectId": tid, "columnIndices": [col],
                                                           "tableColumnProperties": {"columnWidth": pt(w)}, "fields": "columnWidth"}})
@@ -409,21 +410,23 @@ class DeckBuilder:
             self.chrome(page, title, "Google Cloud Architecture Framework")
             ax, ay, aw, ah = AREA
             cols = min(3, len(chunk))
-            rows = (len(chunk) + cols - 1) // cols
+            rows = max(2, (len(chunk) + cols - 1) // cols)  # never let 1-3 cards span the full height
             gap = 12
             cw = (aw - gap * (cols - 1)) / cols
             ch = (ah - gap * (rows - 1)) / rows
+            body_size = 9.5 if len(chunk) <= 3 else 8.5
             for i, c in enumerate(chunk):
                 col, row = i % cols, i // cols
                 r = Rect(ax + col * (cw + gap), ay + row * (ch + gap), cw, ch)
                 color = PILLAR_COLORS[(ci * CARDS_PER_SLIDE + i) % len(PILLAR_COLORS)]
-                card = self.shape(page, "ROUND_RECTANGLE", r, fill=PAPER, stroke=HAIRLINE, weight=0.75, content_alignment="TOP")
-                self.shape(page, "RECTANGLE", Rect(r.x + 10, r.y + 24, 24, 2), fill=color)
+                self.shape(page, "RECTANGLE", Rect(r.x, r.y, 4, r.h), fill=color)  # coloured left accent
+                card = self.shape(page, "RECTANGLE", Rect(r.x + 4, r.y, r.w - 4, r.h), fill=PAPER, stroke=HAIRLINE, weight=0.75,
+                                  content_alignment="TOP")
                 points = c.points[:5]
                 body = "\n".join(points)
                 content = f"{c.pillar}\n{body}" if body else c.pillar
-                self.text(card, content, size=8.5, color=INK_SOFT, line_spacing=105)
-                self.style_range(card, 0, len(c.pillar), size=10.5, color=INK, bold=True)
+                self.text(card, content, size=body_size, color=INK_SOFT, line_spacing=110)
+                self.style_range(card, 0, len(c.pillar), size=body_size + 2.5, color=INK, bold=True)
                 if body:
                     self.bullets(card, len(c.pillar) + 1, len(content))
 
