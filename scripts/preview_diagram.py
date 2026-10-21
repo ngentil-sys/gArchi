@@ -62,19 +62,21 @@ def main():
     spec = ArchitectureSpec.model_validate(data)
     lay = build_layout(spec)
     sc = lay.scale
+    F = lay.fonts
+    P = lay.params
 
     img = Image.new("RGB", (int(PAGE_W * S), int(PAGE_H * S)), "white")
     d = ImageDraw.Draw(img)
-    d.text((16 * S, 14 * S), "Architecture overview", fill=INK, font=font(18))
+    d.text((16 * S, 14 * S), "Architecture overview", fill=INK, font=font(P.title_pt))
     d.rectangle([16 * S, 43 * S, 52 * S, 45.5 * S], fill="#4285F4")
 
     for zb in lay.zones:
         st = ZONE_STYLE.get(zb.zone.kind, ZONE_STYLE["generic"])
         r = zb.rect
         d.rectangle([r.x * S, r.y * S, (r.x + r.w) * S, (r.y + r.h) * S], fill=st["fill"], outline=st["stroke"], width=int(st["weight"] * S))
-        d.text(((r.x + 7) * S, (r.y + 4) * S), zb.zone.label, fill=st["label"], font=font(max(7.5, 9 * sc), bold=True))
+        d.text(((r.x + 7) * S, (r.y + 4) * S), zb.zone.label, fill=st["label"], font=font(F["zone"], bold=True))
         if zb.zone.detail:
-            d.text(((r.x + 7) * S, (r.y + 15) * S), zb.zone.detail, fill=INK_MUTED, font=font(max(6.5, 7.2 * sc)))
+            d.text(((r.x + 7) * S, (r.y + 15) * S), zb.zone.detail, fill=INK_MUTED, font=font(F["zone_detail"]))
 
     card = {}
     for nid, nb in lay.nodes.items():
@@ -83,11 +85,11 @@ def main():
         d.rounded_rectangle([r.x * S, r.y * S, (r.x + r.w) * S, (r.y + r.h) * S], radius=int(5 * S), fill="white", outline=HAIRLINE, width=2)
         icon_id, _ = catalog_data.resolve_icon_id(nb.node.product, nb.node.icon)
         p = local_icon_path(icon_id) if icon_id else None
-        ic = 26 * sc
+        ic = P.icon * sc
         if p:
             im = Image.open(p).convert("RGBA").resize((int(ic * S), int(ic * S)), Image.LANCZOS)
-            img.paste(im, (int((r.cx - ic / 2) * S), int((r.y + 4 * sc) * S)), im)
-        f1, f2, f3 = font(max(7, 9 * sc)), font(max(6.5, 7.5 * sc)), font(max(6, 6.8 * sc), mono=True)
+            img.paste(im, (int((r.cx - ic / 2) * S), int((r.y + P.icon_top * sc) * S)), im)
+        f1, f2, f3 = font(F["label"]), font(F["sub"]), font(F["detail"], mono=True)
         lines = [(l, f1, INK) for l in wrap(d, nb.node.label, f1, (r.w - 10) * S)]
         if nb.node.sublabel:
             lines += [(l, f2, INK_MUTED) for l in wrap(d, nb.node.sublabel, f2, (r.w - 10) * S)]
@@ -98,11 +100,12 @@ def main():
             y += fn.size * 1.15
 
     placed = []
+    card_rects = list(card.values())
     for e in spec.edges:
         if e.source not in card or e.target not in card:
             continue
         a, b = card[e.source], card[e.target]
-        rt = route(a, b, sc)
+        rt = route(a, b, sc, P.gap_x, P.gap_y)
         pts = rt.points
         col = LINE_GRAY
         for i in range(len(pts) - 1):
@@ -122,10 +125,10 @@ def main():
             tri = [(x, y), (x - ah / 1.6, y - sgn * ah), (x + ah / 1.6, y - sgn * ah)]
         d.polygon([(qx * S, qy * S) for qx, qy in tri], fill=col)
         if e.label:
-            lsize = max(6.5, 7 * sc)
+            lsize = F["edge"]
             fl = font(lsize)
             w = max(24.0, len(e.label) * lsize * 0.58 + 10)
-            lr = label_rect(rt, w, 14, placed)
+            lr = label_rect(rt, w, 14, placed, card_rects)
             d.rectangle([lr.x * S, lr.y * S, (lr.x + lr.w) * S, (lr.y + lr.h) * S], fill="white")
             tw = d.textlength(e.label, font=fl)
             d.text((lr.cx * S - tw / 2, lr.cy * S - fl.size / 2), e.label, fill=INK_MUTED, font=fl)

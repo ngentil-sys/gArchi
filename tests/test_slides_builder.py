@@ -10,6 +10,7 @@ import pytest
 
 from gcp_architect.config import load_settings
 from gcp_architect.diagram.icons import IconResolver
+from gcp_architect.diagram.layout import build_layout
 from gcp_architect.diagram.slides_builder import DeckBuilder
 from gcp_architect.diagram.spec import ArchitectureSpec, example_spec
 
@@ -100,13 +101,19 @@ def test_elements_inside_page(schemas):
         assert -0.5 <= y and y + h <= 405.5, f"{body['objectId']} overflows vertically"
 
 
-def test_big_spec_scales_and_warns():
+def test_big_spec_compacts_and_warns():
     spec = example_spec()
     for i in range(24):
         spec["nodes"].append({"id": f"extra_{i}", "label": f"Extra {i}", "product": "cloud_run", "zone": "vpc"})
     parsed = ArchitectureSpec.model_validate(spec)
     plan = DeckBuilder(parsed, IconResolver(load_settings())).build()
-    assert any("scaled" in w for w in plan.warnings)
+    assert plan.warnings, "dense diagrams must warn"
+    lay = build_layout(parsed)
+    # Text and geometry must stay consistent: fonts shrink only via text_scale together with cards.
+    assert lay.params.level >= 2
+    assert lay.fonts["label"] >= 6.0
+    for nb in lay.nodes.values():
+        assert nb.rect.w >= 50
 
 
 def test_spec_validation_errors():
