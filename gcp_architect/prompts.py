@@ -76,6 +76,41 @@ complete, variablized project grounded in the **official Terraform Google provid
 3. Write the implementation with `write_terraform_files` — send COMPLETE contents of main.tf,
    variables.tf, terraform.tfvars and outputs.tf (keep providers.tf/backend.tf unless you must
    change them). Rules:
+   - **Every resource uses `for_each` over a typed map** (never `count`, never a bare singleton),
+     so adding an instance means adding a map entry in tfvars, not new HCL. Pattern:
+     ```hcl
+     # variables.tf
+     variable "cloud_run_services" {{
+       description = "Cloud Run services to deploy, keyed by short name."
+       type = map(object({{
+         image         = string
+         ingress       = optional(string, "INGRESS_TRAFFIC_INTERNAL_LOAD_BALANCER")
+         min_instances = optional(number, 0)
+         max_instances = optional(number, 10)
+         env           = optional(map(string), {{}})
+       }}))
+       default = {{}}
+     }}
+     # main.tf
+     resource "google_cloud_run_v2_service" "this" {{
+       for_each = var.cloud_run_services
+       name     = "${{local.name_prefix}}-${{each.key}}"
+       location = var.region
+       ingress  = each.value.ingress
+       ...
+       depends_on = [google_project_service.apis]
+     }}
+     # terraform.tfvars
+     cloud_run_services = {{
+       api = {{ image = "REPLACE_ME", min_instances = 1, max_instances = 50 }}
+     }}
+     ```
+     Use `optional(type, default)` for every non-essential attribute, `each.key` in names, and
+     reference other for_each resources by key: `google_sql_database_instance.this[each.value.instance]`.
+     Related child resources (IAM bindings, databases, users, subscriptions) iterate the same map or
+     a derived `local` built with `flatten`/`merge` so parents and children stay in sync.
+     Resources that are singletons by nature (e.g. `google_app_engine_application`) still use
+     `for_each` over a one-entry map so the pattern is uniform.
    - Everything is a variable: no literal project ids, regions, zones, CIDRs, machine types, image
      names, instance tiers, bucket names or e-mails in main.tf. Each new variable has `description`,
      `type`, sensible `default` or a value in terraform.tfvars, and `validation` where useful.
@@ -88,6 +123,7 @@ complete, variablized project grounded in the **official Terraform Google provid
      roles/owner or roles/editor), CMEK via an optional `kms_key_name` variable when the design
      calls for it, secrets only from Secret Manager (never literals, mark variables `sensitive`).
    - Multi-instance patterns use `for_each` over a typed `map(object(...))` variable.
+   - Fields marked `sensitive = true` in variables; never echo them in outputs.
    - outputs.tf exposes endpoints/ids other teams need (URLs, connection names, bucket names).
    - Prefer plain resources; use Cloud Foundation Fabric / terraform-google-modules only if the
      user asks for modules.

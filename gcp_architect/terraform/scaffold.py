@@ -23,6 +23,31 @@ def _minor_constraint(version: str) -> str:
     return f"~> {major}.{minor}"
 
 
+_PLURAL_OVERRIDES = {
+    "cloud_run": "cloud_run_services", "cloud_sql": "cloud_sql_instances", "gke": "gke_clusters",
+    "vpc": "vpc_networks", "cloud_storage": "storage_buckets", "pubsub": "pubsub_topics",
+    "bigquery": "bigquery_datasets", "memorystore": "memorystore_instances", "iam": "service_accounts",
+    "cloud_load_balancing": "load_balancers", "cloud_armor": "security_policies", "cloud_cdn": "cdn_backends",
+    "cloud_monitoring": "alert_policies", "cloud_logging": "log_sinks", "secret_manager": "secrets",
+    "cloud_kms": "kms_keys", "artifact_registry": "artifact_repositories", "cloud_run_functions": "functions",
+    "spanner": "spanner_instances", "bigtable": "bigtable_instances", "firestore": "firestore_databases",
+    "alloydb": "alloydb_clusters", "dataflow": "dataflow_jobs", "dataproc": "dataproc_clusters",
+    "cloud_dns": "dns_zones", "cloud_nat": "nat_gateways", "cloud_vpn": "vpn_tunnels",
+    "compute_engine": "instance_groups", "eventarc": "eventarc_triggers", "workflows": "workflows",
+    "cloud_scheduler": "scheduler_jobs", "cloud_tasks": "task_queues", "apigee": "apigee_environments",
+    "api_gateway": "api_gateways", "vertex_ai": "vertex_endpoints", "cloud_build": "build_triggers",
+    "cloud_deploy": "delivery_pipelines", "private_service_connect": "psc_endpoints",
+    "cloud_firewall": "firewall_rules", "vpc_service_controls": "service_perimeters",
+}
+
+
+def _map_var_name(product_id: str, resources: list[dict]) -> str:
+    if product_id in _PLURAL_OVERRIDES:
+        return _PLURAL_OVERRIDES[product_id]
+    base = resources[0]["name"].removeprefix("google_") if resources else product_id
+    return base if base.endswith("s") else base + "s"
+
+
 def scaffold_files(spec: ArchitectureSpec | None, app_name: str, region: str = "us-central1") -> tuple[dict[str, str], list[dict]]:
     """Return ({filename: content}, plan) where plan lists the components the agent must implement."""
     version = latest_provider_version()
@@ -56,6 +81,7 @@ def scaffold_files(spec: ArchitectureSpec | None, app_name: str, region: str = "
                 "provider": info.get("provider", "google"),
                 "resources": [r["name"] for r in info.get("resources", [])],
                 "docs": [r["docs"] for r in info.get("resources", [])],
+                "map_variable": _map_var_name(prod["id"], info.get("resources", [])),
                 "notes": info.get("notes"),
             })
 
@@ -205,12 +231,21 @@ deletion_protection = false # dev only; keep true in prod
         docs = "\n".join(f"#   {d}" for d in p["docs"]) or "#   (no Terraform resource; see catalog notes)"
         notes = f"\n# Note: {p['notes']}" if p.get("notes") else ""
         role = f" — {p['role']}" if p.get("role") else ""
+        primary = p["resources"][0] if p["resources"] else None
+        pattern = (f'''#
+# Pattern (one map variable, every instance is a tfvars entry):
+#   variable "{p['map_variable']}" {{ type = map(object({{ ... }})) }}
+#   resource "{primary}" "this" {{
+#     for_each = var.{p['map_variable']}
+#     name     = "${{local.name_prefix}}-${{each.key}}"
+#     ...
+#   }}''' if primary else "")
         component_blocks.append(f'''# ---------------------------------------------------------------------------
 # {p['label']}{role}
 # Terraform: {res}{' (google-beta)' if p['provider'] == 'google-beta' else ''}
 # Docs:
-{docs}{notes}
-# TODO(architect): implement with variables only (no literal names/regions/projects)
+{docs}{notes}{pattern}
+# TODO(architect): implement with for_each over var.{p['map_variable']} (no literals)
 # ---------------------------------------------------------------------------
 ''')
 

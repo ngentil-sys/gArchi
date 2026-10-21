@@ -23,8 +23,11 @@ multi-region") rebuild the same deck in place.
 Generated Terraform (ask "generate the Terraform"): `output/<slug>/terraform/` with
 `providers.tf` (pinned `hashicorp/google` + `google-beta`), `backend.tf` (GCS remote state),
 `variables.tf` (typed, documented, validated), `terraform.tfvars`, `main.tf` (locals, API
-enablement, one section per component) and `outputs.tf`. Every resource block is written after
-reading the **official provider documentation** for that resource; a linter rejects literal
+enablement, one section per component) and `outputs.tf`. **Every resource is a `for_each` over a
+typed `map(object({...}))` variable** — adding a bucket, service or database is a new entry in
+`terraform.tfvars`, not new HCL. Every resource block is written after
+reading the **official provider documentation** for that resource; a linter rejects resources
+without `for_each` (or using `count`), literal
 project ids/regions/secrets and undeclared variables, and runs `terraform fmt`/`validate` when a
 `terraform` binary is present (`TERRAFORM_BIN`).
 

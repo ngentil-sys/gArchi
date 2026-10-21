@@ -19,6 +19,7 @@ _VAR_REF = re.compile(r"\bvar\.([A-Za-z_][A-Za-z0-9_-]*)")
 _VAR_DECL = re.compile(r'^\s*variable\s+"([^"]+)"\s*\{', re.M)
 _TFVARS_ASSIGN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*=", re.M)
 _RESOURCE = re.compile(r'^\s*(resource|module|data)\s+"([^"]+)"(?:\s+"([^"]+)")?\s*\{', re.M)
+_FOR_EACH_EXEMPT = {"google_project_service"}  # scaffold singleton already iterates a set
 
 _REGION_PREFIX = r"(us|europe|asia|northamerica|southamerica|australia|me|africa|global)"
 HARDCODE_RULES = [
@@ -86,6 +87,39 @@ def _strip_comments(text: str) -> str:
     return "\n".join(re.sub(r"(^|\s)(#|//).*$", "", ln) for ln in text.splitlines())
 
 
+def _blocks(text: str, kinds: tuple[str, ...] = ("resource",)) -> list[tuple[str, str, str, int]]:
+    """Yield (type, name, top_level_body, line) for each block of the given kinds."""
+    out = []
+    for m in _RESOURCE.finditer(text):
+        if m.group(1) not in kinds:
+            continue
+        depth, i = 1, m.end()
+        start = i
+        while i < len(text) and depth:
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+            i += 1
+        out.append((m.group(2), m.group(3) or "", _top_level(text[start:i]), _line_of(text, m.start())))
+    return out
+
+
+def _variable_types(variables_tf: str) -> dict[str, str]:
+    """{name: first line of the type expression} for warnings about non-map for_each sources."""
+    out: dict[str, str] = {}
+    for m in _VAR_DECL.finditer(variables_tf):
+        depth, i = 1, m.end()
+        start = i
+        while i < len(variables_tf) and depth:
+            depth += variables_tf[i] == "{"
+            depth -= variables_tf[i] == "}"
+            i += 1
+        tm = re.search(r"^\s*type\s*=\s*(.+)$", _top_level(variables_tf[start:i]), re.M)
+        out[m.group(1)] = tm.group(1).strip() if tm else ""
+    return out
+
+
 def lint_files(files: dict[str, str]) -> list[Finding]:
     findings: list[Finding] = []
     tf_files = {k: v for k, v in files.items() if k.endswith(".tf")}
@@ -147,6 +181,30 @@ def lint_files(files: dict[str, str]) -> list[Finding]:
         for rx, msg in SECRET_RULES:
             for m in rx.finditer(text):
                 findings.append(Finding("error", name, _line_of(text, m.start()), msg))
+
+    # for_each discipline: every resource iterates a map so instances are added in tfvars.
+    var_types = _variable_types(files.get("variables.tf", ""))
+    for name, text in tf_files.items():
+        clean = _strip_comments(text)
+        for rtype, rname, body, line in _blocks(clean):
+            fe = re.search(r"^\s*for_each\s*=\s*(.+)$", body, re.M)
+            if re.search(r"^\s*count\s*=", body, re.M):
+                findings.append(Finding("error", name, line, f'{rtype}.{rname}: uses count; use for_each over a map variable'))
+            if not fe:
+                if rtype in _FOR_EACH_EXEMPT:
+                    continue
+                findings.append(Finding("error", name, line,
+                                        f'{rtype}.{rname}: missing for_each. Iterate a map(object(...)) variable so new instances are tfvars entries'))
+                continue
+            src = fe.group(1).strip()
+            vm = re.fullmatch(r"var\.([A-Za-z_][A-Za-z0-9_-]*)", src)
+            if vm:
+                vtype = var_types.get(vm.group(1), "")
+                if vtype and not vtype.startswith(("map(", "map (", "object(")) and "map(" not in vtype:
+                    findings.append(Finding("warning", "variables.tf", None,
+                                            f"variable {vm.group(1)} drives for_each in {rtype}.{rname} but its type is '{vtype}', not map(object(...))"))
+            elif not re.match(r"(local\.|toset\(|\{|merge\(|for\s)", src):
+                findings.append(Finding("info", name, line, f"{rtype}.{rname}: for_each source '{src[:40]}' is not a variable or local map"))
 
     # Structure sanity.
     prov = files.get("providers.tf", "")

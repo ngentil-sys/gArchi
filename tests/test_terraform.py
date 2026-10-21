@@ -24,6 +24,8 @@ def test_scaffold_has_required_files_and_plan(scaffold):
         assert f in files
     products = {p["product"] for p in plan}
     assert {"cloud_run", "cloud_sql", "cloud_load_balancing", "bigquery"} <= products
+    assert next(p for p in plan if p["product"] == "cloud_run")["map_variable"] == "cloud_run_services"
+    assert "for_each = var.cloud_run_services" in files["main.tf"]
     assert "users" not in products  # external nodes are not Terraform components
     assert "run.googleapis.com" in files["variables.tf"]
     assert 'default     = "europe-west1"' in files["variables.tf"]
@@ -69,9 +71,12 @@ resource "google_sql_user" "app" {
 def test_lint_clean_component(scaffold):
     files, _ = dict(scaffold[0]), scaffold[1]
     files["main.tf"] = files["main.tf"].replace("TODO(architect)", "implemented") + '''
-resource "google_storage_bucket" "assets" {
-  name                        = "${local.name_prefix}-${var.assets_bucket_suffix}"
-  location                    = var.region
+resource "google_storage_bucket" "this" {
+  for_each = var.storage_buckets
+
+  name                        = "${local.name_prefix}-${each.key}"
+  location                    = each.value.location != null ? each.value.location : var.region
+  storage_class               = each.value.storage_class
   uniform_bucket_level_access = true
   force_destroy               = !var.deletion_protection
   labels                      = local.labels
@@ -79,15 +84,48 @@ resource "google_storage_bucket" "assets" {
 }
 '''
     files["variables.tf"] += '''
-variable "assets_bucket_suffix" {
-  description = "Suffix for the assets bucket name."
-  type        = string
-  default     = "assets"
+variable "storage_buckets" {
+  description = "Buckets to create, keyed by short name."
+  type = map(object({
+    location      = optional(string)
+    storage_class = optional(string, "STANDARD")
+  }))
+  default = {}
 }
 '''
-    files["outputs.tf"] += '\noutput "assets_bucket" {\n  value = google_storage_bucket.assets.name\n}\n'
+    files["terraform.tfvars"] += '\nstorage_buckets = {\n  assets = { storage_class = "STANDARD" }\n}\n'
+    files["outputs.tf"] += '\noutput "bucket_names" {\n  value = { for k, b in google_storage_bucket.this : k => b.name }\n}\n'
     findings = tflint.lint_files(files)
     assert [f for f in findings if f.severity == "error"] == []
+
+
+def test_lint_requires_for_each(scaffold):
+    files, _ = dict(scaffold[0]), scaffold[1]
+    files["main.tf"] += '''
+resource "google_pubsub_topic" "events" {
+  name   = "${local.name_prefix}-events"
+  labels = local.labels
+}
+
+resource "google_pubsub_subscription" "counted" {
+  count = 2
+  name  = "${local.name_prefix}-sub-${count.index}"
+  topic = google_pubsub_topic.events.name
+}
+
+resource "google_pubsub_topic" "listy" {
+  for_each = var.topic_names
+  name     = each.value
+}
+'''
+    files["variables.tf"] += '\nvariable "topic_names" {\n  type    = list(string)\n  default = []\n}\n'
+    findings = tflint.lint_files(files)
+    errors = [f.message for f in findings if f.severity == "error"]
+    assert any("google_pubsub_topic.events: missing for_each" in m for m in errors)
+    assert any("google_pubsub_subscription.counted: uses count" in m for m in errors)
+    assert any("topic_names drives for_each" in f.message for f in findings if f.severity == "warning")
+    # the scaffold's own google_project_service.apis is exempt / already for_each
+    assert not any("google_project_service" in m for m in errors)
 
 
 def test_variable_default_detection_ignores_nested_blocks():

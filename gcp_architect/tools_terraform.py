@@ -74,6 +74,7 @@ def scaffold_terraform_project(name: str, tool_context: ToolContext, region: str
         "components_to_implement": plan,
         "base_variables": BASE_VARIABLES,
         "rules": [
+            "Every resource uses for_each over a typed map(object({...})) variable (see each component's map_variable); never count, never singletons. New instances are tfvars entries.",
             "No literal project ids, regions, zones, names or secrets in main.tf: add a typed variable to variables.tf and a value to terraform.tfvars.",
             "Name resources with local.name_prefix; label with local.labels.",
             "Add depends_on = [google_project_service.apis] to resources that need a newly enabled API.",
