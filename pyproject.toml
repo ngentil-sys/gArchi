@@ -1,0 +1,32 @@
+[project]
+name = "gcp-architect-agent"
+version = "0.1.0"
+description = "Gemini (ADK) agent that designs enterprise Google Cloud architectures and renders editable Google Slides decks with official icons."
+requires-python = ">=3.11"
+dependencies = [
+    "google-adk>=2.0",
+    "google-api-python-client>=2.150",
+    "google-auth>=2.35",
+    "google-auth-httplib2",
+    "google-cloud-storage>=2.18",
+    "pydantic>=2.7",
+    "httpx>=0.27",
+    "beautifulsoup4>=4.12",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pillow>=10"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["gcp_architect*"]
+
+[tool.setuptools.package-data]
+gcp_architect = ["catalog/*.json", ".env.example"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
