@@ -31,6 +31,8 @@ class Settings:
     location: str
     architect_model: str
     researcher_model: str
+    architect_thinking: str  # low | medium | high
+    researcher_thinking: str
     icon_host: str  # "gcs" | "url" | "none"
     icon_bucket: str | None
     icon_prefix: str
@@ -55,8 +57,10 @@ def load_settings() -> Settings:
     return Settings(
         project=os.getenv("GOOGLE_CLOUD_PROJECT"),
         location=os.getenv("GOOGLE_CLOUD_LOCATION", "us-central1"),
-        architect_model=os.getenv("ARCHITECT_MODEL", "gemini-2.5-pro"),
-        researcher_model=os.getenv("RESEARCHER_MODEL", "gemini-2.5-flash"),
+        architect_model=os.getenv("ARCHITECT_MODEL", "gemini-3.8-flash"),
+        researcher_model=os.getenv("RESEARCHER_MODEL", "gemini-3.8-flash"),
+        architect_thinking=os.getenv("ARCHITECT_THINKING_LEVEL", "high").lower(),
+        researcher_thinking=os.getenv("RESEARCHER_THINKING_LEVEL", "low").lower(),
         icon_host=os.getenv("ICON_HOST", "gcs").lower(),
         icon_bucket=os.getenv("ICON_BUCKET"),
         icon_prefix=os.getenv("ICON_PREFIX", "icons/"),

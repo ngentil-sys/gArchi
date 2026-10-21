@@ -6,7 +6,7 @@ that designs **enterprise-grade Google Cloud architectures** and delivers them a
 **official documentation** (cloud.google.com).
 
 ```
-you ──chat──▶ gcp_architect (Gemini 2.5 Pro, ADK)
+you ──chat──▶ gcp_architect (Gemini 3.8 Flash, ADK)
                  ├─ search_gcp_docs        Gemini + Google Search grounding, restricted to cloud.google.com
                  ├─ fetch_official_doc     reads a cloud.google.com page (limits, SLAs, best practices)
                  ├─ list/search/get_gcp_product   curated catalog: product → docs URL + official icon
