@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .layout import GAP_X, Rect
+from .layout import GAP_X, GAP_Y, Rect
 
 # Connection site indexes for RECTANGLE / ROUND_RECTANGLE (ECMA-376).
 SITE_TOP, SITE_LEFT, SITE_BOTTOM, SITE_RIGHT = 0, 1, 2, 3
@@ -29,7 +29,8 @@ def route(a: Rect, b: Rect, scale: float = 1.0) -> Route:
     gap = GAP_X * scale
 
     same_column = abs(dx) < a.w / 2
-    skips_a_card = abs(dy) > a.h * 1.5
+    # Adjacent rows are one (card + gap) apart; anything beyond 1.5x means a card sits in between.
+    skips_a_card = abs(dy) > 1.5 * (a.h + GAP_Y * scale)
     if same_column and skips_a_card:
         # Loop around the right-hand side so the line does not cross cards in between.
         off = gap / 2

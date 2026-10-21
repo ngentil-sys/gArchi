@@ -6,7 +6,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 
 from ..config import load_settings
-from ..gapi.slides import SlidesClient, url_for
+from ..gapi.slides import SlidesClient, SlidesError, url_for
 from .icons import IconResolver
 from .slides_builder import DeckBuilder
 from .spec import ArchitectureSpec
@@ -45,7 +45,15 @@ def render_deck(spec: ArchitectureSpec, presentation_id: str | None = None, clie
         warnings.append(f"Icons not available on the icon host: {plan.icon_misses}")
 
     if presentation_id:
-        pres = client.get(presentation_id)
+        try:
+            pres = client.get(presentation_id)
+        except SlidesError as exc:
+            if "404" not in str(exc):
+                raise
+            log.warning("presentation %s no longer exists; creating a new deck", presentation_id)
+            warnings.append("Previous deck was deleted or is inaccessible; created a new one.")
+            presentation_id = None
+    if presentation_id:
         old_slides = [s["objectId"] for s in pres.get("slides", [])]
         requests = plan.requests + [{"deleteObject": {"objectId": sid}} for sid in old_slides]
         if pres.get("title") != spec.title:
@@ -59,7 +67,19 @@ def render_deck(spec: ArchitectureSpec, presentation_id: str | None = None, clie
         default_slides = [s["objectId"] for s in pres.get("slides", [])]
         requests = plan.requests + [{"deleteObject": {"objectId": sid}} for sid in default_slides]
 
-    client.batch_update(presentation_id, requests)
+    try:
+        client.batch_update(presentation_id, requests)
+    except SlidesError as exc:
+        # Image fetch failures abort the whole batch; retry once without images so the user
+        # still gets an editable deck (cards fall back to initial glyphs).
+        if "createImage" in str(exc) or "image" in str(exc).lower():
+            log.warning("batchUpdate failed on an image; retrying without icons: %s", exc)
+            no_img = [r for r in requests if "createImage" not in r]
+            client.batch_update(presentation_id, no_img)
+            warnings.append("One or more icon images could not be fetched by Slides; the deck was built without icons. "
+                            "Run check_setup to verify ICON_HOST/ICON_BUCKET.")
+        else:
+            raise
 
     shared: list[str] = []
     if settings.share_with:

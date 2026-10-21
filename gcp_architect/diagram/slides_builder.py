@@ -341,12 +341,14 @@ class DeckBuilder:
     def _components(self) -> list[Component]:
         if self.spec.components:
             return self.spec.components
-        seen: set[str] = set()
+        seen: set[tuple[str, str]] = set()
         out: list[Component] = []
         for n in self.spec.nodes:
-            key = n.product or n.id
-            if key in seen or (n.product and catalog_data.get_product(n.product) and
-                               catalog_data.get_product(n.product)["category"] == "external"):
+            prod = catalog_data.get_product(n.product) if n.product else None
+            if prod and prod["category"] == "external":
+                continue
+            key = (n.product or n.id, n.sublabel or "")  # two Cloud Run services stay two rows
+            if key in seen:
                 continue
             seen.add(key)
             out.append(Component(name=n.label, product=n.product, role=n.sublabel or ""))

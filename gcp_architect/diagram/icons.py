@@ -55,17 +55,34 @@ class IconResolver:
         return icon_id in ids if ids else True
 
     def url_for(self, icon_id: str | None) -> str | None:
+        """Public URL for an icon, or None. URLs are probed once (HEAD) because a single
+        unreachable image URL makes the whole Slides batchUpdate fail."""
         if not icon_id or not self.enabled or not self.has_icon(icon_id):
             return None
         if icon_id in self._cache:
             return self._cache[icon_id]
         try:
             url = self._resolve(icon_id)
+            if url and not self._reachable(url):
+                log.warning("icon %s is not fetchable at %s; drawing fallback glyph", icon_id, url[:100])
+                url = None
         except Exception as exc:  # noqa: BLE001 - never fail the whole deck on an icon
             log.warning("icon %s could not be resolved: %s", icon_id, exc)
             url = None
         self._cache[icon_id] = url
         return url
+
+    @staticmethod
+    def _reachable(url: str) -> bool:
+        import httpx
+
+        try:
+            r = httpx.head(url, timeout=8, follow_redirects=True)
+            if r.status_code == 405:  # some hosts reject HEAD
+                r = httpx.get(url, timeout=8, follow_redirects=True, headers={"Range": "bytes=0-0"})
+            return r.status_code < 400
+        except httpx.HTTPError:
+            return False
 
     # -- internals -----------------------------------------------------------
 
