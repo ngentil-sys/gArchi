@@ -67,8 +67,18 @@ def route(a: Rect, b: Rect, scale: float = 1.0) -> Route:
     return Route(s, e, pts, (p0[0] + 4 * scale, my), "right")
 
 
-def label_rect(r: Route, w: float, h: float) -> Rect:
+def label_rect(r: Route, w: float, h: float, placed: list[Rect] | None = None) -> Rect:
+    """Label box on the route; if `placed` is given, nudge down until it no longer overlaps earlier labels."""
     x, y = r.label_center
-    if r.label_side == "right":
-        return Rect(x, y - h / 2, w, h)
-    return Rect(x - w / 2, y - h / 2, w, h)
+    rect = Rect(x, y - h / 2, w, h) if r.label_side == "right" else Rect(x - w / 2, y - h / 2, w, h)
+    if placed is not None:
+        for _ in range(6):
+            if not any(_overlaps(rect, p) for p in placed):
+                break
+            rect = Rect(rect.x, rect.y + h + 1, rect.w, rect.h)
+        placed.append(rect)
+    return rect
+
+
+def _overlaps(a: Rect, b: Rect) -> bool:
+    return a.x < b.x + b.w and a.x + a.w > b.x and a.y < b.y + b.h and a.y + a.h > b.y

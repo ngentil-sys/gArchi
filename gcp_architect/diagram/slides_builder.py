@@ -277,7 +277,9 @@ class DeckBuilder:
         s = lay.scale
         label_size = max(7.0, round(9.0 * s, 1))
         sub_size = max(6.5, round(7.5 * s, 1))
+        detail_size = max(6.0, round(6.8 * s, 1))
         zone_size = max(7.5, round(9.0 * s, 1))
+        zone_detail_size = max(6.5, round(7.2 * s, 1))
         icon_px = 26 * s
 
         # 1. zones (parents first so children draw on top)
@@ -285,7 +287,10 @@ class DeckBuilder:
             st = ZONE_STYLE.get(zb.zone.kind, ZONE_STYLE["generic"])
             sid = self.shape(page, "RECTANGLE", zb.rect, fill=st["fill"], stroke=st["stroke"], weight=st["weight"],
                              dash=st["dash"], content_alignment="TOP", name=f"zone_{zb.zone.id}")
-            self.text(sid, zb.zone.label, size=zone_size, color=st["label"], bold=True)
+            ztext = zb.zone.label + (f"\n{zb.zone.detail}" if zb.zone.detail else "")
+            self.text(sid, ztext, size=zone_size, color=st["label"], bold=True, line_spacing=90)
+            if zb.zone.detail:
+                self.style_range(sid, len(zb.zone.label) + 1, len(ztext), size=zone_detail_size, color=INK_MUTED, bold=False)
 
         # 2. node cards + icons
         card_ids: dict[str, str] = {}
@@ -296,10 +301,20 @@ class DeckBuilder:
                              content_alignment="BOTTOM", name=f"node_{nid}")
             card_ids[nid] = cid
             label = n.label
-            content = label + (f"\n{n.sublabel}" if n.sublabel else "")
+            parts = [label] + ([n.sublabel] if n.sublabel else []) + list(n.details)
+            content = "\n".join(parts)
             self.text(cid, content, size=label_size, color=INK, align="CENTER", line_spacing=90)
+            pos = len(label) + 1
             if n.sublabel:
-                self.style_range(cid, len(label) + 1, len(content), size=sub_size, color=INK_MUTED)
+                self.style_range(cid, pos, pos + len(n.sublabel), size=sub_size, color=INK_MUTED)
+                pos += len(n.sublabel) + 1
+            if n.details:
+                self.add({"updateTextStyle": {
+                    "objectId": cid,
+                    "textRange": {"type": "FIXED_RANGE", "startIndex": pos, "endIndex": len(content)},
+                    "style": {"fontFamily": MONO, "fontSize": pt(detail_size), "foregroundColor": {"opaqueColor": rgb(INK_MUTED)}},
+                    "fields": "fontFamily,fontSize,foregroundColor",
+                }})
             icon_url = self._icon_url(n)
             if icon_url:
                 self.image(page, icon_url, Rect(r.cx - icon_px / 2, r.y + 4 * s, icon_px, icon_px), name=f"icon_{nid}")
@@ -310,6 +325,7 @@ class DeckBuilder:
                 self.text(g, (label[:1] or "?").upper(), size=max(7, 11 * s), color="#FFFFFF", bold=True, align="CENTER")
 
         # 3. connectors (bound to cards so they follow when moved)
+        placed_labels: list[Rect] = []
         for e in self.spec.edges:
             if e.source == e.target or e.source not in lay.nodes or e.target not in lay.nodes:
                 continue
@@ -319,7 +335,7 @@ class DeckBuilder:
                 lsize = max(6.5, 7 * s)
                 # Text boxes have ~7.2pt insets on each side; size the box so short labels never wrap.
                 w = len(e.label) * lsize * 0.56 + 18
-                lr = label_rect(route(a, b, s), w, 14)
+                lr = label_rect(route(a, b, s), w, 14, placed_labels)
                 self.textbox(page, lr, e.label, size=lsize, color=INK_MUTED, align="CENTER",
                              fill="#FFFFFF", content_alignment="MIDDLE", name="elabel")
         return page

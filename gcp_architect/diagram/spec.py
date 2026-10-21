@@ -29,7 +29,11 @@ class Zone(BaseModel):
     """A labelled container (boundary) drawn around nodes and/or child zones."""
 
     id: str = Field(description="Short snake_case identifier, e.g. 'vpc_prod'.")
-    label: str = Field(description="Display label, e.g. 'VPC: prod-vpc (us-central1)'.")
+    label: str = Field(description="Display label, e.g. 'VPC: prod-vpc'.")
+    detail: str | None = Field(
+        default=None, max_length=48,
+        description="Second line with low-level facts, e.g. 'us-central1 · 10.10.0.0/16' or 'project: acme-prod-01'.",
+    )
     kind: ZoneKind = "generic"
     parent: str | None = Field(default=None, description="Id of the enclosing zone, if nested.")
 
@@ -53,6 +57,20 @@ class Node(BaseModel):
     )
     icon: str | None = Field(default=None, description="Optional explicit icon id override.")
     zone: str | None = Field(default=None, description="Id of the zone that contains this node.")
+    details: list[str] = Field(
+        default_factory=list, max_length=3,
+        description="Up to 3 short technical lines (<= 20 chars each) shown on the card in monospace: "
+                    "region/zone, IP or CIDR, machine type, tier/edition, instance counts, ports. "
+                    "e.g. ['us-central1', '10.10.1.0/24', 'e2-standard-4 x3'].",
+    )
+
+    @field_validator("details")
+    @classmethod
+    def _short_details(cls, v: list[str]) -> list[str]:
+        for d in v:
+            if len(d) > 20:
+                raise ValueError(f"detail line too long ({len(d)} > 20 chars): '{d}'")
+        return v
 
     @field_validator("id")
     @classmethod
@@ -65,7 +83,7 @@ class Node(BaseModel):
 class Edge(BaseModel):
     source: str
     target: str
-    label: str | None = Field(default=None, description="Short protocol/flow label, e.g. 'HTTPS', 'CDC'.")
+    label: str | None = Field(default=None, max_length=28, description="Short protocol/flow label, e.g. 'HTTPS :443', 'CDC', 'BGP 169.254.0.1'.")
     style: EdgeStyle = "solid"
     bidirectional: bool = False
 
@@ -136,32 +154,32 @@ def example_spec() -> dict:
         "subtitle": "Globally load-balanced Cloud Run API with Cloud SQL, Memorystore and Pub/Sub analytics",
         "zones": [
             {"id": "ext", "label": "Clients", "kind": "external"},
-            {"id": "gcp", "label": "Google Cloud: project prod-web", "kind": "project"},
-            {"id": "edge", "label": "Global edge", "kind": "network", "parent": "gcp"},
-            {"id": "vpc", "label": "VPC: prod-vpc (us-central1)", "kind": "network", "parent": "gcp"},
-            {"id": "data", "label": "Data & analytics", "kind": "data", "parent": "gcp"},
+            {"id": "gcp", "label": "Google Cloud: project prod-web", "detail": "org: acme.example · folder: prod", "kind": "project"},
+            {"id": "edge", "label": "Global edge", "detail": "anycast 34.120.10.5", "kind": "network", "parent": "gcp"},
+            {"id": "vpc", "label": "VPC: prod-vpc", "detail": "us-central1 · 10.10.0.0/16", "kind": "network", "parent": "gcp"},
+            {"id": "data", "label": "Data & analytics", "detail": "US multi-region", "kind": "data", "parent": "gcp"},
             {"id": "ops", "label": "Security & operations", "kind": "operations", "parent": "gcp"},
         ],
         "nodes": [
-            {"id": "users", "label": "Users", "product": "users", "zone": "ext"},
-            {"id": "lb", "label": "Cloud Load Balancing", "sublabel": "Global external HTTPS", "product": "cloud_load_balancing", "zone": "edge"},
-            {"id": "armor", "label": "Cloud Armor", "sublabel": "WAF + DDoS", "product": "cloud_armor", "zone": "edge"},
-            {"id": "cdn", "label": "Cloud CDN", "product": "cloud_cdn", "zone": "edge"},
-            {"id": "api", "label": "Cloud Run", "sublabel": "Web API", "product": "cloud_run", "zone": "vpc"},
-            {"id": "cache", "label": "Memorystore", "sublabel": "Redis cache", "product": "memorystore", "zone": "vpc"},
-            {"id": "db", "label": "Cloud SQL", "sublabel": "PostgreSQL HA", "product": "cloud_sql", "zone": "vpc"},
-            {"id": "topic", "label": "Pub/Sub", "sublabel": "Events", "product": "pubsub", "zone": "data"},
-            {"id": "bq", "label": "BigQuery", "sublabel": "Analytics", "product": "bigquery", "zone": "data"},
-            {"id": "iam", "label": "IAM", "product": "iam", "zone": "ops"},
-            {"id": "mon", "label": "Cloud Monitoring", "product": "cloud_monitoring", "zone": "ops"},
+            {"id": "users", "label": "Users", "product": "users", "zone": "ext", "details": ["web + mobile"]},
+            {"id": "lb", "label": "Cloud Load Balancing", "sublabel": "Global external HTTPS", "product": "cloud_load_balancing", "zone": "edge", "details": ["34.120.10.5 :443", "TLS 1.2+ / managed"]},
+            {"id": "armor", "label": "Cloud Armor", "sublabel": "WAF + DDoS", "product": "cloud_armor", "zone": "edge", "details": ["OWASP CRS 3.3", "100 rps/IP limit"]},
+            {"id": "cdn", "label": "Cloud CDN", "product": "cloud_cdn", "zone": "edge", "details": ["CACHE_ALL_STATIC"]},
+            {"id": "api", "label": "Cloud Run", "sublabel": "Web API", "product": "cloud_run", "zone": "vpc", "details": ["us-central1", "2 vCPU / 1 GiB", "min 1 · max 50"]},
+            {"id": "cache", "label": "Memorystore", "sublabel": "Redis cache", "product": "memorystore", "zone": "vpc", "details": ["10.10.3.4 :6379", "STANDARD_HA 5 GB"]},
+            {"id": "db", "label": "Cloud SQL", "sublabel": "PostgreSQL HA", "product": "cloud_sql", "zone": "vpc", "details": ["10.10.2.5 (private)", "db-custom-4-16384", "regional HA · PITR"]},
+            {"id": "topic", "label": "Pub/Sub", "sublabel": "Events", "product": "pubsub", "zone": "data", "details": ["7 d retention"]},
+            {"id": "bq", "label": "BigQuery", "sublabel": "Analytics", "product": "bigquery", "zone": "data", "details": ["dataset: events", "partition: day"]},
+            {"id": "iam", "label": "IAM", "product": "iam", "zone": "ops", "details": ["sa-api@ · sa-etl@"]},
+            {"id": "mon", "label": "Cloud Monitoring", "product": "cloud_monitoring", "zone": "ops", "details": ["SLO 99.9% avail"]},
         ],
         "edges": [
-            {"source": "users", "target": "lb", "label": "HTTPS"},
-            {"source": "lb", "target": "api"},
+            {"source": "users", "target": "lb", "label": "HTTPS :443"},
+            {"source": "lb", "target": "api", "label": "serverless NEG"},
             {"source": "armor", "target": "lb", "style": "dashed", "label": "policy"},
             {"source": "cdn", "target": "lb", "style": "dashed"},
-            {"source": "api", "target": "cache"},
-            {"source": "api", "target": "db", "label": "private IP"},
+            {"source": "api", "target": "cache", "label": "TCP 6379"},
+            {"source": "api", "target": "db", "label": "private IP :5432"},
             {"source": "api", "target": "topic", "label": "publish"},
             {"source": "topic", "target": "bq", "label": "BQ subscription"},
         ],

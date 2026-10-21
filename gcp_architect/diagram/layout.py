@@ -22,10 +22,13 @@ PAGE_W, PAGE_H = 720.0, 405.0
 AREA = (16.0, 52.0, 688.0, 336.0)  # x, y, w, h
 
 NODE_W, NODE_H = 100.0, 66.0
-GAP_X, GAP_Y = 28.0, 18.0
-ZONE_PAD = 12.0
+NODE_W_DETAILED = 120.0  # wider card when any node carries detail lines (monospace is wide)
+DETAIL_LINE_H = 9.5  # extra card height per detail line
+GAP_X, GAP_Y = 24.0, 16.0
+ZONE_PAD = 10.0
 ZONE_HEADER = 20.0  # space reserved for the zone label at the top
-ZONE_GAP = 20.0
+ZONE_DETAIL_H = 10.0  # extra header height when the zone has a detail line
+ZONE_GAP = 16.0
 MAX_ROWS = 3
 
 _LEFT, _RIGHT = "__left__", "__right__"
@@ -70,6 +73,7 @@ class Layout:
     scale: float
     node_w: float
     node_h: float
+    detail_lines: int = 0  # max detail lines on any card (drives card height)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -123,34 +127,38 @@ def _grid(n: int) -> tuple[int, int]:
     return cols, rows
 
 
-def _measure(block: _Block) -> None:
+def _zone_header(zone: Zone | None) -> float:
+    return ZONE_HEADER + (ZONE_DETAIL_H if zone is not None and zone.detail else 0.0)
+
+
+def _measure(block: _Block, node_w: float, node_h: float) -> None:
     for c in block.children:
-        _measure(c)
+        _measure(c, node_w, node_h)
     n = len(block.nodes)
     cols, rows = _grid(n)
     block.cols, block.rows = cols, rows
-    block.node_block_w = cols * NODE_W + max(0, cols - 1) * GAP_X if n else 0.0
-    block.node_block_h = rows * NODE_H + max(0, rows - 1) * GAP_Y if n else 0.0
+    block.node_block_w = cols * node_w + max(0, cols - 1) * GAP_X if n else 0.0
+    block.node_block_h = rows * node_h + max(0, rows - 1) * GAP_Y if n else 0.0
 
     parts_w = ([block.node_block_w] if n else []) + [c.w for c in block.children]
     parts_h = ([block.node_block_h] if n else []) + [c.h for c in block.children]
     inner_w = sum(parts_w) + max(0, len(parts_w) - 1) * ZONE_GAP
-    inner_h = max(parts_h) if parts_h else NODE_H
+    inner_h = max(parts_h) if parts_h else node_h
 
     if block.zone is None:  # pseudo container for free nodes
         block.w, block.h = inner_w, inner_h
     else:
-        label_w = len(block.zone.label) * 5.6 + 14  # ~9pt bold Google Sans
-        block.w = max(inner_w, NODE_W, label_w) + 2 * ZONE_PAD
-        block.h = inner_h + ZONE_HEADER + ZONE_PAD
+        label_w = max(len(block.zone.label) * 5.6, len(block.zone.detail or "") * 4.6) + 14
+        block.w = max(inner_w, node_w, label_w) + 2 * ZONE_PAD
+        block.h = inner_h + _zone_header(block.zone) + ZONE_PAD
 
 
-def _place(block: _Block, x: float, y: float, h: float, depth: int, zones: list[ZoneBox], nodes: dict[str, NodeBox]) -> None:
+def _place(block: _Block, x: float, y: float, h: float, node_w: float, node_h: float, depth: int, zones: list[ZoneBox], nodes: dict[str, NodeBox]) -> None:
     """Place a block at (x, y) with an allotted height `h` (siblings are stretched to equal height)."""
     if block.zone is not None:
         zones.append(ZoneBox(block.zone, Rect(x, y, block.w, h), depth))
-        cx, cy = x + ZONE_PAD, y + ZONE_HEADER
-        inner_h = h - ZONE_HEADER - ZONE_PAD
+        cx, cy = x + ZONE_PAD, y + _zone_header(block.zone)
+        inner_h = h - _zone_header(block.zone) - ZONE_PAD
         child_depth = depth + 1
     else:
         cx, cy = x, y
@@ -163,17 +171,17 @@ def _place(block: _Block, x: float, y: float, h: float, depth: int, zones: list[
         per_col = _column_sizes(len(block.nodes), block.cols)
         i = 0
         for col, size in enumerate(per_col):
-            col_h = size * NODE_H + (size - 1) * GAP_Y
+            col_h = size * node_h + (size - 1) * GAP_Y
             col_top = top + (block.node_block_h - col_h) / 2
             for row in range(size):
                 node = block.nodes[i]
                 i += 1
-                nx = cursor + col * (NODE_W + GAP_X)
-                ny = col_top + row * (NODE_H + GAP_Y)
-                nodes[node.id] = NodeBox(node, Rect(nx, ny, NODE_W, NODE_H))
+                nx = cursor + col * (node_w + GAP_X)
+                ny = col_top + row * (node_h + GAP_Y)
+                nodes[node.id] = NodeBox(node, Rect(nx, ny, node_w, node_h))
         cursor += block.node_block_w + ZONE_GAP
     for child in block.children:
-        _place(child, cursor, cy, inner_h, child_depth, zones, nodes)
+        _place(child, cursor, cy, inner_h, node_w, node_h, child_depth, zones, nodes)
         cursor += child.w + ZONE_GAP
 
 
@@ -186,6 +194,9 @@ def build_layout(spec: ArchitectureSpec) -> Layout:
     warnings: list[str] = []
     ranks = compute_ranks(spec)
     order_index = {n.id: i for i, n in enumerate(spec.nodes)}
+    detail_lines = max((len(n.details) for n in spec.nodes), default=0)
+    node_h = NODE_H + DETAIL_LINE_H * detail_lines
+    node_w = NODE_W_DETAILED if detail_lines else NODE_W
 
     def sort_nodes(ns: list[Node]) -> list[Node]:
         return sorted(ns, key=lambda n: (ranks.get(n.id, 0), order_index[n.id]))
@@ -220,15 +231,15 @@ def build_layout(spec: ArchitectureSpec) -> Layout:
         roots.append(_Block(zone=None, nodes=sort_nodes(right_free), children=[]))
 
     for r in roots:
-        _measure(r)
+        _measure(r, node_w, node_h)
     total_w = sum(r.w for r in roots) + max(0, len(roots) - 1) * ZONE_GAP
-    total_h = max(r.h for r in roots) if roots else NODE_H
+    total_h = max(r.h for r in roots) if roots else node_h
 
     zones: list[ZoneBox] = []
     nodes: dict[str, NodeBox] = {}
     cursor = 0.0
     for r in roots:
-        _place(r, cursor, 0.0, total_h, 0, zones, nodes)
+        _place(r, cursor, 0.0, total_h, node_w, node_h, 0, zones, nodes)
         cursor += r.w + ZONE_GAP
 
     ax, ay, aw, ah = AREA
@@ -245,4 +256,5 @@ def build_layout(spec: ArchitectureSpec) -> Layout:
     nodes = {k: NodeBox(v.node, v.rect.scaled(scale, dx, dy)) for k, v in nodes.items()}
     # Ensure parents are drawn before children (they already are, by construction).
     zones.sort(key=lambda zb: zb.depth)
-    return Layout(zones=zones, nodes=nodes, scale=scale, node_w=NODE_W * scale, node_h=NODE_H * scale, warnings=warnings)
+    return Layout(zones=zones, nodes=nodes, scale=scale, node_w=node_w * scale, node_h=node_h * scale,
+                  detail_lines=detail_lines, warnings=warnings)

@@ -143,8 +143,21 @@ complete, variablized project grounded in the **official Terraform Google provid
   cross-cutting services, `external`/`onprem` for anything outside Google Cloud. Use `region`
   zones when multi-region matters. Every zone label should be specific ("VPC: prod-shared (us-central1)").
 - Node `label` = official product name; `sublabel` = its role here ("Orders API", "PostgreSQL 16 HA").
-- Edge labels are short (protocol or data flow: "HTTPS", "gRPC", "CDC", "private IP").
+- Edge labels are short (protocol/port or data flow: "HTTPS :443", "gRPC", "CDC", "BGP 169.254.0.1").
   Use `dashed` for control-plane / policy / async relationships.
+- **Low-level detail (always include, this is what makes the diagram useful to engineers):**
+  - Zone `detail` line: region(s) and CIDR for networks ("us-central1 · 10.10.0.0/16"), project id /
+    folder for project zones, "US multi-region" for data zones, anycast IP for the global edge,
+    AS number / location for on-prem ("AS 65001 · Frankfurt DC").
+  - Node `details` (up to 3 lines, <= 20 chars each, monospace): the concrete facts an engineer
+    would ask for — region/zone, private IP or subnet ("10.10.2.5 (private)", "subnet 10.10.1.0/24"),
+    external/anycast IP and port ("34.120.10.5 :443"), machine type / tier / edition
+    ("e2-standard-4 x3", "db-custom-4-16384", "Enterprise Plus"), size/capacity ("5 GB", "2 vCPU / 1 GiB"),
+    scaling bounds ("min 1 · max 50"), HA/replication ("regional HA · PITR", "3 zones"), retention,
+    partitioning, SLO targets, service-account names. Use realistic placeholder values when the
+    customer has not given them (RFC 1918 ranges, example anycast IPs) and say so in the reply.
+  - Edge labels carry protocol and port where meaningful ("TCP 6379", "private IP :5432").
+  - Keep text short: abbreviations are fine on cards; the component table holds the full wording.
 - Components table: one row per product with its role and the key configuration (edition, tier,
   HA mode, region, CMEK, etc.). Considerations: 4-6 pillars with 2-5 crisp bullets each.
   References: the official pages you actually used.
