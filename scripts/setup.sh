@@ -26,9 +26,15 @@ fi
 set -a; source "$ENV_FILE"; set +a
 
 step "gcloud: login + Application Default Credentials (Vertex AI + Slides + Drive scopes)"
-"$GCLOUD" auth login --update-adc --quiet 2>/dev/null || true
-"$GCLOUD" auth application-default login \
-  --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/presentations,https://www.googleapis.com/auth/drive.file
+# Over SSH (no DISPLAY) gcloud cannot open a browser: it prints a URL to open on your laptop
+# and asks you to paste the code back. Force that mode with NO_BROWSER=1.
+BROWSER_FLAG=()
+if [ -n "${NO_BROWSER:-}" ] || [ -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then BROWSER_FLAG=(--no-launch-browser); fi
+if [ -z "${SKIP_LOGIN:-}" ]; then
+  "$GCLOUD" auth login "${BROWSER_FLAG[@]}"
+  "$GCLOUD" auth application-default login "${BROWSER_FLAG[@]}" \
+    --scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/presentations,https://www.googleapis.com/auth/drive.file
+fi
 "$GCLOUD" auth application-default set-quota-project "$GOOGLE_CLOUD_PROJECT"
 "$GCLOUD" config set project "$GOOGLE_CLOUD_PROJECT"
 

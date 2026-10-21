@@ -43,6 +43,15 @@ policy forbids public buckets, keep the bucket private and set `ICON_SIGNER_SA`;
 mints short-lived V4 signed URLs through IAM `signBlob` (the script creates the SA and grants you
 `roles/iam.serviceAccountTokenCreator` with `--create-signer`).
 
+### Cloudtop (glinux) notes
+
+* `gcloud` lives at `/google/data/ro/teams/cloud-sdk/gcloud` if it is not on your `PATH`
+  (`export GCLOUD=/google/data/ro/teams/cloud-sdk/gcloud`).
+* Over SSH there is no browser: the script passes `--no-launch-browser`, prints a URL, you open it
+  on your laptop and paste the verification code back. Already logged in? `SKIP_LOGIN=1 ./scripts/setup.sh`.
+* The ADK UI binds to `127.0.0.1:8000`. From your laptop either use Chrome Remote Desktop, or
+  forward the port: `ssh -L 8000:localhost:8000 <you>.c.googlers.com` and open http://localhost:8000.
+
 ## Run
 
 ```bash
