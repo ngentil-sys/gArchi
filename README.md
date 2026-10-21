@@ -1,4 +1,4 @@
-# GCP Architect Agent
+# gArchi — GCP Architect Agent
 
 A locally hosted Gemini agent (built on the [Agent Development Kit](https://google.github.io/adk-docs/))
 that designs **enterprise-grade Google Cloud architectures** and delivers them as
@@ -20,6 +20,7 @@ multi-region") rebuild the same deck in place.
 
 ## Prerequisites
 
+* Clone: `git clone git@github.com:ngentil-sys/gArchi.git gcp-architect-agent`
 * glinux or a Chromebook Linux container with Python ≥ 3.11 (`python3-venv`), `gcloud`.
 * A Google Cloud project you own with billing enabled (Vertex AI for Gemini, Slides/Drive APIs,
   a small bucket to host the icons).
