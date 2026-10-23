@@ -1,0 +1,12 @@
+# Cloud Build pipeline for the gArchi workspace image (used by scripts/deploy_argolis.sh).
+# Runs as a dedicated least-privilege build service account; logs go to Cloud Logging.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "${_IMAGE}", "."]
+images:
+  - "${_IMAGE}"
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+serviceAccount: "projects/${PROJECT_ID}/serviceAccounts/${_BUILD_SA}"
+timeout: 1200s

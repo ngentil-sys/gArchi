@@ -140,6 +140,7 @@ write_tfvars ""
 "$TF" apply -input=false -auto-approve -no-color | tail -5
 AGENT_ENGINE_ID=$("$TF" output -json agent_engine_ids | python3 -c 'import json,sys; print(json.load(sys.stdin)["sessions"])')
 SA_EMAIL=$("$TF" output -json service_accounts | python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace"])')
+BUILD_SA=$("$TF" output -json service_accounts | python3 -c 'import json,sys; print(json.load(sys.stdin)["build"])')
 echo "agent engine (sessions): $AGENT_ENGINE_ID"
 
 # ---------------------------------------------------------------------------- 4. image
@@ -147,7 +148,8 @@ cd ..
 if [ "$SKIP_BUILD" = 0 ]; then
   step "Build image with Cloud Build -> $IMAGE"
   TAG=$(git rev-parse --short HEAD 2>/dev/null || date +%s)
-  "$GCLOUD" builds submit --project "$PROJECT" --region "$REGION" --tag "$IMAGE:$TAG" --quiet . >/dev/null
+  "$GCLOUD" builds submit --project "$PROJECT" --region "$REGION" --config cloudbuild.yaml \
+    --substitutions="_IMAGE=$IMAGE:$TAG,_BUILD_SA=$BUILD_SA" --quiet . >/dev/null
   IMAGE_REF="$IMAGE:$TAG"
 else
   IMAGE_REF=$("$GCLOUD" artifacts docker images list "$IMAGE" --format='value(package)' --limit 1 --sort-by=~UPDATE_TIME):latest

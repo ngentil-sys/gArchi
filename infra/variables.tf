@@ -113,6 +113,14 @@ variable "service_accounts" {
         "roles/monitoring.metricWriter",
       ]
     }
+    build = {
+      display_name = "gArchi image builds (Cloud Build)"
+      roles = [
+        "roles/cloudbuild.builds.builder", # source bucket read, build execution
+        "roles/artifactregistry.writer",   # push images
+        "roles/logging.logWriter",
+      ]
+    }
   }
 }
 
