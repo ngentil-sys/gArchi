@@ -142,8 +142,25 @@ bucket for icons). Don't have a project yet? See [FAQ](#faq).
 git clone git@github.com:ngentil-sys/gArchi.git gcp-architect-agent
 cd gcp-architect-agent
 ./scripts/setup.sh        # venv, .env, gcloud login with Slides scopes, APIs, official icons → bucket, tests
-./scripts/run.sh          # ADK dev UI → http://127.0.0.1:8000, choose "gcp_architect"
+./scripts/run.sh          # gArchi workspace → http://127.0.0.1:8000
+./scripts/run_adk.sh      # (optional) stock ADK dev UI on :8001 for event/trace debugging
 ```
+
+## The workspace (GUI)
+
+`scripts/run.sh` serves a local single-page workspace (FastAPI + vanilla JS, no build step):
+
+| Area | What it does |
+|---|---|
+| **Engagements** (top bar) | One session per customer; persisted in `output/sessions.db` (SQLite) so you can come back to an engagement, its brief, chat and deliverables. |
+| **Customer brief** (left) | Tabbed form — *Customer*, *Goals & problems*, *Requirements* (scale, SLA/RTO/RPO, performance, regions, compliance, budget, constraints), *Current infra* (hosting, network/CIDRs, identity, data, tooling), *Notes* (paste discovery-call notes). Saved into the agent's session state and injected into every turn as the source of truth. |
+| **Quick actions** | Design architecture · Generate Terraform · Compare alternatives · Make it multi-region · Architecture review · Open questions |
+| **Deliverables** (right, top) | Deck thumbnail + Slides link, Terraform project path — updated live as tools finish. |
+| **Chat** (right) | Streaming answers (markdown), tool activity chips (docs search, validation, rendering, Terraform lint…) with status, Stop button. |
+
+API (for scripting): `GET/POST /api/sessions`, `GET /api/sessions/{id}`, `PUT /api/sessions/{id}/brief`,
+`POST /api/sessions/{id}/chat` (SSE: `delta`, `message`, `tool_call`, `tool_result`, `deliverable`, `state`, `done`, `error`).
+Set `SESSION_DB_URL` to another SQLAlchemy async URL (or `memory`) to change persistence; `GARCHI_USER` to namespace sessions.
 
 ---
 
@@ -233,7 +250,7 @@ Design rules enforced by the linter (the agent must reach `ok: true`):
 ## Developing
 
 ```bash
-.venv/bin/python -m pytest -q                       # 16 tests: Slides schema validation, layout, routing, catalog, Terraform lint
+.venv/bin/python -m pytest -q                       # 21 tests: Slides schema validation, layout, routing, catalog, Terraform lint
 .venv/bin/python scripts/preview_diagram.py         # local PNG preview of the example spec (no API needed)
 .venv/bin/python scripts/preview_diagram.py my.json -o out.png
 .venv/bin/python scripts/render_example.py          # real deck end-to-end (needs auth)
@@ -255,6 +272,8 @@ the official pack) and, if it has Terraform support, to `catalog/terraform_resou
 | `gcp_architect/agent.py` | `root_agent` (architect) + `gcp_docs_researcher` sub-agent |
 | `gcp_architect/prompts.py` | Method, enterprise baseline, spec schema, Terraform rules |
 | `gcp_architect/tools.py`, `tools_terraform.py` | ADK function tools |
+| `gcp_architect/brief.py` | `CustomerBrief` model (GUI form → session state → agent instruction) |
+| `gcp_architect/ui/` | FastAPI backend (`server.py`) + static workspace GUI (`static/`) |
 | `gcp_architect/catalog/products.json` | Product catalog: id, name, category, official docs, official icon, aliases |
 | `gcp_architect/catalog/terraform_resources.json` | Product → Terraform resources, APIs, beta flag |
 | `gcp_architect/diagram/spec.py` | `ArchitectureSpec` (zones / nodes / edges / components / considerations / references) |
@@ -277,7 +296,8 @@ the official pack) and, if it has Terraform support, to `catalog/terraform_resou
 - [ ] Speaker notes, legend, multi-view diagrams (context / network / data / CI-CD), IaC slide
 - [ ] Vertex AI Search datastore over cloud.google.com for higher-precision grounding
 - [ ] Terraform: module layout, per-environment tfvars, `tflint`/`checkov` gates, golden tests
-- [ ] Packaging for Chromebook; FastAPI + chat UI; Agent Engine deployment for team use
+- [x] Workspace GUI (customer brief + chat + deliverables)
+- [ ] Packaging for Chromebook; Agent Engine deployment for team use
 
 ---
 

@@ -10,6 +10,7 @@ from google.adk.agents import LlmAgent
 from google.adk.tools import AgentTool, google_search
 from google.genai import types
 
+from .brief import brief_from_state
 from .config import load_settings
 from .prompts import RESEARCHER_INSTRUCTION, architect_instruction
 from .tools import (
@@ -60,11 +61,32 @@ search_gcp_docs.description = (
     "quotas, SLAs, pricing models). Input: a specific natural-language question. Returns an answer with official URLs."
 )
 
+
+def _dynamic_instruction(ctx) -> str:
+    """Per-session context: the customer brief from the workspace form, plus current deliverables."""
+    parts: list[str] = []
+    brief = brief_from_state(ctx.state)
+    if brief:
+        parts.append(
+            "# Customer brief (captured in the workspace form — treat as the source of truth; ask only about gaps)\n"
+            + brief.to_markdown()
+        )
+    url = ctx.state.get("presentation_url")
+    if url:
+        parts.append(f"# Current deliverables\n- Architecture deck (rebuild in place on changes): {url}")
+    tf = ctx.state.get("terraform_project")
+    if tf:
+        parts.append(f"- Terraform project slug: {tf}")
+    return "\n\n".join(parts) if parts else "No customer brief has been captured yet; gather requirements in the conversation."
+
 root_agent = LlmAgent(
     name="gcp_architect",
     model=settings.architect_model,
     description="Enterprise Google Cloud architect that produces editable Google Slides architecture decks and variablized Terraform.",
-    instruction=architect_instruction(),
+    # The long, stable method lives in static_instruction (cache-friendly); the per-engagement
+    # customer brief captured in the GUI is appended dynamically from session state.
+    static_instruction=architect_instruction(),
+    instruction=_dynamic_instruction,
     generate_content_config=_gen_config(settings.architect_thinking),
     tools=[
         search_gcp_docs,

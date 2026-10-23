@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gArchi · GCP Architect workspace</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/styles.css">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="dots"><i></i><i></i><i></i><i></i></span>
+    <span class="name">gArchi</span>
+    <span class="tag">GCP Architect workspace</span>
+  </div>
+  <div class="engagement">
+    <select id="sessionSelect" title="Engagement"></select>
+    <button id="newSession" class="btn ghost" title="New engagement">＋ New</button>
+    <button id="renameSession" class="btn ghost" title="Rename">Rename</button>
+    <button id="deleteSession" class="btn ghost danger" title="Delete">Delete</button>
+  </div>
+  <div class="health" id="health" title="Backend status">…</div>
+</header>
+
+<main class="layout">
+  <!-- ─────────── Left: customer brief ─────────── -->
+  <section class="panel brief">
+    <div class="panel-head">
+      <h2>Customer brief</h2>
+      <div class="head-actions">
+        <span id="briefStatus" class="status"></span>
+        <button id="saveBrief" class="btn primary">Save brief</button>
+      </div>
+    </div>
+
+    <nav class="tabs" id="briefTabs">
+      <button data-tab="who" class="active">Customer</button>
+      <button data-tab="why">Goals &amp; problems</button>
+      <button data-tab="req">Requirements</button>
+      <button data-tab="infra">Current infra</button>
+      <button data-tab="notes">Notes</button>
+    </nav>
+
+    <form id="briefForm" class="tabpanes" autocomplete="off">
+      <div class="tabpane active" data-tab="who">
+        <label>Customer <input name="customer" placeholder="Acme Retail GmbH"></label>
+        <label>Industry <input name="industry" placeholder="Retail · e-commerce"></label>
+        <label>Stakeholders <input name="stakeholders" placeholder="CTO, Head of Platform, Security lead"></label>
+      </div>
+      <div class="tabpane" data-tab="why">
+        <label>Objectives &amp; problems to solve
+          <textarea name="objectives" rows="10" placeholder="Why now? Business goals, pain points, success criteria. e.g. Replace the aging on-prem order platform before peak season; cut P1 incidents; enable weekly releases."></textarea>
+        </label>
+      </div>
+      <div class="tabpane" data-tab="req">
+        <label>Workloads in scope <textarea name="workloads" rows="2" placeholder="Order API, checkout web app, nightly settlement batch, BI reporting"></textarea></label>
+        <div class="grid2">
+          <label>Scale <input name="scale" placeholder="5k TPS peak · 2M MAU · 20 TB/day"></label>
+          <label>Availability / DR <input name="availability" placeholder="99.95% · RPO 0 · RTO 15 min"></label>
+          <label>Performance <input name="performance" placeholder="p99 &lt; 200 ms in EU"></label>
+          <label>Regions <input name="regions" placeholder="europe-west3 primary, europe-west1 DR"></label>
+          <label>Compliance <input name="compliance" placeholder="PCI DSS, GDPR, EU data residency"></label>
+          <label>Budget <input name="budget" placeholder="OPEX-neutral vs today · 3-year CUD possible"></label>
+        </div>
+        <label>Constraints <textarea name="constraints" rows="2" placeholder="Must keep SAP on-prem for 2 years; no public IPs on databases; Java team"></textarea></label>
+      </div>
+      <div class="tabpane" data-tab="infra">
+        <label>Hosting / clouds today <textarea name="current_infra" rows="2" placeholder="2 on-prem DCs (Frankfurt, Munich) · VMware · some AWS (S3 archives)"></textarea></label>
+        <label>Network <textarea name="network" rows="2" placeholder="On-prem 10.0.0.0/8 · AS 65001 · 2× 10G at Equinix FR5 · proposed GCP ranges 10.10.0.0/16"></textarea></label>
+        <div class="grid2">
+          <label>Identity <input name="identity" placeholder="Okta (workforce) · Entra ID · custom CIAM"></label>
+          <label>Tooling <input name="tooling" placeholder="GitLab CI · Terraform · Datadog · Jira"></label>
+        </div>
+        <label>Data <textarea name="data" rows="2" placeholder="Oracle 19c 4 TB (orders) · SQL Server · 50 TB file archive · Kafka"></textarea></label>
+      </div>
+      <div class="tabpane" data-tab="notes">
+        <label>Preferences <textarea name="preferences" rows="3" placeholder="Prefer serverless · naming: &lt;env&gt;-&lt;app&gt;-&lt;svc&gt; · avoid GKE Standard"></textarea></label>
+        <label>Notes / discovery call <textarea name="notes" rows="10" placeholder="Paste raw notes here — the agent reads everything in this brief."></textarea></label>
+      </div>
+    </form>
+
+    <div class="quick">
+      <h3>Quick actions</h3>
+      <div class="chips">
+        <button class="chip" data-prompt="Using the customer brief, design the target architecture on Google Cloud. State assumptions, then render the deck with full low-level detail (regions, CIDRs, IPs, tiers).">Design architecture</button>
+        <button class="chip" data-prompt="Generate the Terraform for the current design.">Generate Terraform</button>
+        <button class="chip" data-prompt="Propose two alternative designs (e.g. serverless vs GKE, or Cloud SQL vs Spanner) with trade-offs against the Architecture Framework pillars, and render the preferred one.">Compare alternatives</button>
+        <button class="chip" data-prompt="Make the design multi-region active/passive with the RTO/RPO from the brief and re-render the deck.">Make it multi-region</button>
+        <button class="chip" data-prompt="Review the current design against the Google Cloud Architecture Framework and list gaps with official doc references.">Architecture review</button>
+        <button class="chip" data-prompt="Summarise the open questions and assumptions I should validate with the customer.">Open questions</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────── Right: agent ─────────── -->
+  <section class="panel chat">
+    <div class="deliverables" id="deliverables">
+      <div class="deliv-card" id="deckCard">
+        <div class="deliv-thumb" id="deckThumb"><span>No deck yet</span></div>
+        <div class="deliv-meta">
+          <div class="deliv-title">Architecture deck</div>
+          <a id="deckLink" href="#" target="_blank" rel="noopener" class="hidden">Open in Google Slides ↗</a>
+          <div class="muted" id="deckHint">Ask the agent to design the architecture.</div>
+        </div>
+      </div>
+      <div class="deliv-card" id="tfCard">
+        <div class="deliv-icon">{ }</div>
+        <div class="deliv-meta">
+          <div class="deliv-title">Terraform</div>
+          <code id="tfPath" class="muted">not generated</code>
+        </div>
+      </div>
+    </div>
+
+    <div class="messages" id="messages"></div>
+
+    <form class="composer" id="composer">
+      <textarea id="input" rows="2" placeholder="Describe what you need, or use a quick action… (Enter to send, Shift+Enter for newline)"></textarea>
+      <button id="send" class="btn primary" type="submit">Send</button>
+      <button id="stop" class="btn ghost hidden" type="button">Stop</button>
+    </form>
+  </section>
+</main>
+
+<script src="/static/app.js" defer></script>
+</body>
+</html>

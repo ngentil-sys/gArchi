@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Gemini (ADK) agent that designs enterprise Google Cloud architectures and renders editable Google Slides decks with official icons."
 requires-python = ">=3.11"
 dependencies = [
-    "google-adk>=2.0",
+    "google-adk[db]>=2.0",
+    "aiosqlite>=0.20",
+    "fastapi>=0.110",
+    "uvicorn>=0.30",
     "google-api-python-client>=2.150",
     "google-auth>=2.35",
     "google-auth-httplib2",
