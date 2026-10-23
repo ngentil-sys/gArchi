@@ -1,0 +1,12 @@
+.venv
+.git
+.github
+output
+tests
+docs
+assets/icons
+__pycache__
+*.pyc
+.pytest_cache
+infra
+gcp_architect/.env

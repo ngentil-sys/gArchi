@@ -6,6 +6,8 @@ and renders them as editable Google Slides decks with official icons and documen
 
 from __future__ import annotations
 
+import os
+
 from google.adk.agents import LlmAgent
 from google.adk.tools import AgentTool, google_search
 from google.genai import types
@@ -79,6 +81,22 @@ def _dynamic_instruction(ctx) -> str:
         parts.append(f"- Terraform project slug: {tf}")
     return "\n\n".join(parts) if parts else "No customer brief has been captured yet; gather requirements in the conversation."
 
+
+RESEARCH_BUDGET = int(os.getenv("RESEARCH_BUDGET_PER_TURN", "6"))
+
+
+def _research_budget(tool, args, tool_context):
+    """Google Search grounding is billed per grounded prompt; cap research calls per user turn."""
+    if tool.name != "search_gcp_docs":
+        return None
+    key = f"_research_calls:{tool_context.invocation_id}"
+    used = int(tool_context.state.get(key, 0))
+    if used >= RESEARCH_BUDGET:
+        return {"error": f"Research budget for this turn ({RESEARCH_BUDGET} searches) is used up. "
+                         "Use fetch_official_doc on URLs you already know, or proceed with stated assumptions."}
+    tool_context.state[key] = used + 1
+    return None
+
 root_agent = LlmAgent(
     name="gcp_architect",
     model=settings.architect_model,
@@ -87,6 +105,7 @@ root_agent = LlmAgent(
     # customer brief captured in the GUI is appended dynamically from session state.
     static_instruction=architect_instruction(),
     instruction=_dynamic_instruction,
+    before_tool_callback=_research_budget,
     generate_content_config=_gen_config(settings.architect_thinking),
     tools=[
         search_gcp_docs,

@@ -132,7 +132,8 @@ def read_terraform_project(tool_context: ToolContext, project: str = "") -> dict
 def _report(slug: str, root) -> dict:
     files = project_io.read_files(slug)
     findings = tflint.lint_files(files)
-    tf = tflint.run_terraform_checks(root)
+    local = project_io.local_checkout(slug)
+    tf = tflint.run_terraform_checks(local) if local else {"available": False, "hint": "no local checkout"}
     errors = [f for f in findings if f.severity == "error"]
     ok = not errors and tf.get("validate", {}).get("ok", True) and tf.get("init", {}).get("ok", True)
     return {

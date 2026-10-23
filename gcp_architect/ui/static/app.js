@@ -113,7 +113,7 @@
     if (d.deck_thumbnail_url) {
       els.deckThumb.innerHTML = `<img src="${d.deck_thumbnail_url}" alt="deck thumbnail">`;
     }
-    if (d.terraform_path) els.tfPath.textContent = d.terraform_path;
+    if (d.terraform_path) { els.tfPath.textContent = d.terraform_path; const dl = document.getElementById('tfDownload'); if (dl) { dl.href = `/api/sessions/${state.sessionId}/terraform.zip`; dl.classList.remove('hidden'); } }
   }
 
   // ---------------------------------------------------------------- messages

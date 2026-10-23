@@ -24,8 +24,8 @@ import time
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk.agents.run_config import RunConfig, StreamingMode
 from google.adk.runners import Runner
@@ -51,11 +51,21 @@ STATE_TF_PATH = "terraform_path"
 
 
 def _session_service() -> BaseSessionService:
+    """SESSION_BACKEND: sqlite (default, local), agent_engine (managed Agent Engine Sessions), memory."""
+    backend = os.getenv("SESSION_BACKEND", "").lower()
     url = os.getenv("SESSION_DB_URL")
-    if url == "memory":
+    if backend == "memory" or url == "memory":
         return InMemorySessionService()
+    if backend == "agent_engine":
+        from google.adk.sessions import VertexAiSessionService
+
+        st = load_settings()
+        return VertexAiSessionService(project=st.project, location=st.location, agent_engine_id=os.environ["AGENT_ENGINE_ID"])
     if not url:
-        db = Path(os.getenv("OUTPUT_DIR", PROJECT_DIR / "output")).expanduser() / "sessions.db"
+        db = Path(os.getenv("OUTPUT_DIR", str(PROJECT_DIR / "output")))
+        if str(db).startswith("gs://"):  # hosted without agent_engine sessions: fall back to a local file
+            db = Path("/tmp/garchi")
+        db = db.expanduser() / "sessions.db"
         db.parent.mkdir(parents=True, exist_ok=True)
         url = f"sqlite+aiosqlite:///{db}"
     return DatabaseSessionService(db_url=url)
@@ -65,6 +75,14 @@ session_service = _session_service()
 runner = Runner(app_name=APP_NAME, agent=root_agent, session_service=session_service)
 app = FastAPI(title="gArchi workspace")
 _locks: dict[str, asyncio.Lock] = {}
+
+
+def _user(request: Request) -> str:
+    """Behind IAP every request carries the verified user; locally fall back to the OS user."""
+    hdr = request.headers.get("x-goog-authenticated-user-email")
+    if hdr:
+        return hdr.split(":", 1)[-1].lower()
+    return USER_ID
 
 
 # ----------------------------------------------------------------------------- models
@@ -152,35 +170,37 @@ def _sse(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
-async def _get(session_id: str):
-    s = await session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
+async def _get(session_id: str, user: str = USER_ID):
+    s = await session_service.get_session(app_name=APP_NAME, user_id=user, session_id=session_id)
     if not s:
         raise HTTPException(404, "session not found")
     return s
 
 
-async def _update_state(session_id: str, delta: dict) -> None:
+async def _update_state(session_id: str, delta: dict, user: str = USER_ID) -> None:
     """Persist a state change without a model turn (state_delta on a no-op invocation)."""
     from google.adk.events import Event, EventActions
 
-    s = await _get(session_id)
+    s = await _get(session_id, user)
     await session_service.append_event(s, Event(author="system", invocation_id=f"state-{int(time.time()*1000)}",
                                                 actions=EventActions(state_delta=delta)))
 
 
 # ----------------------------------------------------------------------------- routes
 @app.get("/api/health")
-async def health() -> dict:
+async def health(request: Request) -> dict:
     st = load_settings()
-    return {"ok": True, "project": st.project, "model": st.architect_model, "icons": st.icons_enabled, "user": USER_ID}
+    return {"ok": True, "project": st.project, "model": st.architect_model, "icons": st.icons_enabled, "user": _user(request),
+            "sessions": type(session_service).__name__, "output": os.getenv("OUTPUT_DIR", "local")}
 
 
 @app.get("/api/sessions")
-async def list_sessions() -> list[dict]:
-    res = await session_service.list_sessions(app_name=APP_NAME, user_id=USER_ID)
+async def list_sessions(request: Request) -> list[dict]:
+    user = _user(request)
+    res = await session_service.list_sessions(app_name=APP_NAME, user_id=user)
     out = []
     for s in sorted(res.sessions, key=lambda x: x.last_update_time or 0, reverse=True):
-        full = await session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=s.id)
+        full = await session_service.get_session(app_name=APP_NAME, user_id=user, session_id=s.id)
         state = (full.state if full else s.state) or {}
         brief = state.get(STATE_BRIEF) or {}
         out.append({"id": s.id, "title": state.get(STATE_TITLE) or brief.get("customer") or "Untitled",
@@ -190,15 +210,15 @@ async def list_sessions() -> list[dict]:
 
 
 @app.post("/api/sessions")
-async def create_session(body: CreateSession) -> dict:
+async def create_session(body: CreateSession, request: Request) -> dict:
     state = {STATE_TITLE: body.title, STATE_BRIEF: (body.brief or CustomerBrief()).model_dump()}
-    s = await session_service.create_session(app_name=APP_NAME, user_id=USER_ID, state=state)
+    s = await session_service.create_session(app_name=APP_NAME, user_id=_user(request), state=state)
     return {"id": s.id, "title": body.title}
 
 
 @app.get("/api/sessions/{session_id}")
-async def get_session(session_id: str) -> dict:
-    s = await _get(session_id)
+async def get_session(session_id: str, request: Request) -> dict:
+    s = await _get(session_id, _user(request))
     state = s.state or {}
     return {
         "id": s.id,
@@ -210,29 +230,30 @@ async def get_session(session_id: str) -> dict:
 
 
 @app.put("/api/sessions/{session_id}/brief")
-async def put_brief(session_id: str, brief: CustomerBrief) -> dict:
+async def put_brief(session_id: str, brief: CustomerBrief, request: Request) -> dict:
     delta = {STATE_BRIEF: brief.model_dump()}
     if brief.customer.strip():
         delta[STATE_TITLE] = brief.customer.strip()
-    await _update_state(session_id, delta)
+    await _update_state(session_id, delta, _user(request))
     return {"ok": True}
 
 
 @app.put("/api/sessions/{session_id}/title")
-async def put_title(session_id: str, body: dict) -> dict:
-    await _update_state(session_id, {STATE_TITLE: str(body.get("title", "")).strip() or "Untitled"})
+async def put_title(session_id: str, body: dict, request: Request) -> dict:
+    await _update_state(session_id, {STATE_TITLE: str(body.get("title", "")).strip() or "Untitled"}, _user(request))
     return {"ok": True}
 
 
 @app.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str) -> dict:
-    await session_service.delete_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
+async def delete_session(session_id: str, request: Request) -> dict:
+    await session_service.delete_session(app_name=APP_NAME, user_id=_user(request), session_id=session_id)
     return {"ok": True}
 
 
 @app.post("/api/sessions/{session_id}/chat")
-async def chat(session_id: str, body: ChatIn) -> StreamingResponse:
-    await _get(session_id)
+async def chat(session_id: str, body: ChatIn, request: Request) -> StreamingResponse:
+    user = _user(request)
+    await _get(session_id, user)
     lock = _locks.setdefault(session_id, asyncio.Lock())
     if lock.locked():
         raise HTTPException(409, "the agent is still working on the previous message")
@@ -244,7 +265,7 @@ async def chat(session_id: str, body: ChatIn) -> StreamingResponse:
             cfg = RunConfig(streaming_mode=StreamingMode.SSE)
             errored = False
             try:
-                async for ev in runner.run_async(user_id=USER_ID, session_id=session_id, new_message=content, run_config=cfg):
+                async for ev in runner.run_async(user_id=user, session_id=session_id, new_message=content, run_config=cfg):
                     for item in _events_to_sse(ev):
                         if item.startswith("event: error"):
                             errored = True
@@ -253,7 +274,7 @@ async def chat(session_id: str, body: ChatIn) -> StreamingResponse:
                 log.exception("agent run failed")
                 if not errored:
                     yield _sse("error", {"message": _explain_error(exc)})
-            s = await session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
+            s = await session_service.get_session(app_name=APP_NAME, user_id=user, session_id=session_id)
             yield _sse("state", _deliverables((s.state if s else {}) or {}))
             yield _sse("done", {"ts": time.time()})
 
@@ -304,11 +325,25 @@ def _events_to_sse(ev) -> list[str]:
 
 # Persist deliverable extras (thumbnail, tf path) the tools do not store themselves.
 @app.post("/api/sessions/{session_id}/deliverables")
-async def put_deliverables(session_id: str, body: dict) -> dict:
+async def put_deliverables(session_id: str, body: dict, request: Request) -> dict:
     delta = {k: v for k, v in body.items() if k in (STATE_THUMB, STATE_TF_PATH) and v}
     if delta:
-        await _update_state(session_id, delta)
+        await _update_state(session_id, delta, _user(request))
     return {"ok": True}
+
+
+@app.get("/api/sessions/{session_id}/terraform.zip")
+async def terraform_zip(session_id: str, request: Request) -> Response:
+    from ..terraform import project_io
+
+    s = await _get(session_id, _user(request))
+    slug = (s.state or {}).get(STATE_TF_PROJECT)
+    if not slug:
+        raise HTTPException(404, "no Terraform project for this engagement")
+    data = project_io.zip_bytes(slug)
+    if not data:
+        raise HTTPException(404, "Terraform project is empty")
+    return Response(data, media_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{slug}-terraform.zip"'})
 
 
 @app.get("/")
