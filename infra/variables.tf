@@ -46,6 +46,7 @@ variable "enabled_apis" {
   default = [
     "aiplatform.googleapis.com",
     "artifactregistry.googleapis.com",
+    "billingbudgets.googleapis.com",
     "cloudbuild.googleapis.com",
     "drive.googleapis.com",
     "iam.googleapis.com",
@@ -64,7 +65,7 @@ variable "enabled_apis" {
 # Storage: buckets keyed by role (icons must be publicly readable for the Slides API)
 # ---------------------------------------------------------------------------
 variable "buckets" {
-  description = "Buckets to create, keyed by role. Name = <project>-<app>-<key>."
+  description = "Buckets to create, keyed by role. Name = <project>-<app>-<key>. Keep public=false: icons are served to the Slides API via short-lived signed URLs."
   type = map(object({
     public         = optional(bool, false)
     versioning     = optional(bool, false)
@@ -72,7 +73,7 @@ variable "buckets" {
     lifecycle_days = optional(number)
   }))
   default = {
-    icons  = { public = true }
+    icons  = { public = false }
     output = { versioning = true, lifecycle_days = 365 }
   }
 }
@@ -99,10 +100,12 @@ variable "service_accounts" {
   type = map(object({
     display_name = string
     roles        = list(string)
+    self_signer  = optional(bool, false)
   }))
   default = {
     workspace = {
       display_name = "gArchi workspace runtime"
+      self_signer  = true
       roles = [
         "roles/aiplatform.user",     # Gemini + Agent Engine Sessions
         "roles/storage.objectAdmin", # icons + Terraform output buckets

@@ -58,7 +58,7 @@ resource "google_storage_bucket" "this" {
   location                    = var.region
   storage_class               = each.value.storage_class
   uniform_bucket_level_access = true
-  public_access_prevention    = each.value.public ? "inherited" : "enforced"
+  public_access_prevention    = each.value.public ? "inherited" : "enforced" # public=false by default (private + signed URLs)
   force_destroy               = !var.deletion_protection
   labels                      = local.labels
 
@@ -125,6 +125,15 @@ resource "google_service_account" "this" {
   display_name = each.value.display_name
 
   depends_on = [google_project_service.apis]
+}
+
+# Allow a service account to sign URLs as itself via IAM signBlob (no key files).
+resource "google_service_account_iam_member" "self_signer" {
+  for_each = { for k, sa in var.service_accounts : k => sa if sa.self_signer }
+
+  service_account_id = google_service_account.this[each.key].name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${google_service_account.this[each.key].email}"
 }
 
 resource "google_project_iam_member" "sa_roles" {
@@ -258,4 +267,6 @@ resource "google_billing_budget" "this" {
       threshold_percent = threshold_rules.value
     }
   }
+
+  depends_on = [google_project_service.apis]
 }

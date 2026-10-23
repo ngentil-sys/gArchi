@@ -73,6 +73,9 @@ if ! "$GCLOUD" storage buckets describe "gs://$STATE_BUCKET" >/dev/null 2>&1; th
   "$GCLOUD" storage buckets update "gs://$STATE_BUCKET" --versioning >/dev/null
 fi
 
+# Terraform + gcloud storage authenticate with the gcloud user token (no ADC needed).
+export GOOGLE_OAUTH_ACCESS_TOKEN
+GOOGLE_OAUTH_ACCESS_TOKEN=$("$GCLOUD" auth print-access-token)
 cd infra
 "$TF" init -input=false -reconfigure -backend-config="bucket=$STATE_BUCKET" -backend-config="prefix=garchi/$ENVIRONMENT" >/dev/null
 echo "state: gs://$STATE_BUCKET/garchi/$ENVIRONMENT/default.tfstate"
@@ -105,6 +108,7 @@ write_tfvars() {  # $1 = image (empty => no Cloud Run yet)
       ICON_HOST                 = "gcs"
       ICON_BUCKET               = "$ICON_BUCKET"
       ICON_PREFIX               = "icons/"
+      ICON_SIGNER_SA            = "$SA_EMAIL"
       OUTPUT_DIR                = "gs://$OUTPUT_BUCKET/engagements"
       SESSION_BACKEND           = "agent_engine"
       AGENT_ENGINE_ID           = "$AGENT_ENGINE_ID"
@@ -131,10 +135,11 @@ EOF
 
 # ---------------------------------------------------------------------------- 3. foundations
 step "Terraform apply: APIs, buckets, registry, service account, Agent Engine sessions"
-AGENT_ENGINE_ID=""
+AGENT_ENGINE_ID=""; SA_EMAIL=""
 write_tfvars ""
 "$TF" apply -input=false -auto-approve -no-color | tail -5
 AGENT_ENGINE_ID=$("$TF" output -json agent_engine_ids | python3 -c 'import json,sys; print(json.load(sys.stdin)["sessions"])')
+SA_EMAIL=$("$TF" output -json service_accounts | python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace"])')
 echo "agent engine (sessions): $AGENT_ENGINE_ID"
 
 # ---------------------------------------------------------------------------- 4. image
@@ -152,6 +157,7 @@ echo "image: $IMAGE_REF"
 # ---------------------------------------------------------------------------- 5. Cloud Run + IAP
 cd infra
 step "Terraform apply: Cloud Run + IAP"
+GOOGLE_OAUTH_ACCESS_TOKEN=$("$GCLOUD" auth print-access-token)
 write_tfvars "$IMAGE_REF"
 "$TF" apply -input=false -auto-approve -no-color | tail -5
 URL=$("$TF" output -json workspace_urls | python3 -c 'import json,sys; print(json.load(sys.stdin)["workspace"])')
@@ -159,8 +165,10 @@ URL=$("$TF" output -json workspace_urls | python3 -c 'import json,sys; print(jso
 # ---------------------------------------------------------------------------- 6. icons
 cd ..
 step "Upload official icons to gs://$ICON_BUCKET/icons/"
-.venv/bin/python scripts/setup_icons.py --bucket "$ICON_BUCKET" --prefix icons/ >/dev/null
-curl -s -o /dev/null -w "icon probe: HTTP %{http_code}\n" "https://storage.googleapis.com/$ICON_BUCKET/icons/cloud_run.png"
+[ -f assets/icons/manifest.json ] || .venv/bin/python scripts/setup_icons.py >/dev/null
+"$GCLOUD" storage rsync assets/icons "gs://$ICON_BUCKET/icons" --include='*.png' --exclude='*' --cache-control='public, max-age=86400' --quiet 2>/dev/null \
+  || "$GCLOUD" storage cp assets/icons/*.png "gs://$ICON_BUCKET/icons/" --quiet
+echo "icons are private; the service signs URLs as $SA_EMAIL"
 
 # ---------------------------------------------------------------------------- 7. state copy
 step "Terraform state"
